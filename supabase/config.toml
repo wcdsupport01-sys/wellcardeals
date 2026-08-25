@@ -1,0 +1,29 @@
+[functions.create-agent]
+verify_jwt = false
+
+[functions.agent-add-car]
+verify_jwt = false
+
+[functions.add-car]
+verify_jwt = false
+
+[functions.update-car]
+verify_jwt = false
+
+[functions.delete-car]
+verify_jwt = false
+
+[functions.approve-dealer]
+verify_jwt = false
+
+[functions.manage-lookup]
+verify_jwt = false
+
+[functions.mark-sold]
+verify_jwt = false
+
+[functions.record-signup]
+verify_jwt = false
+
+[functions.send-access-code]
+verify_jwt = false

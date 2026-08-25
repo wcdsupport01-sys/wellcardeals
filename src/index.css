@@ -1,0 +1,111 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Poppins:wght@500;600;700;800&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+    overflow-x: hidden;
+    width: 100%;
+  }
+  body {
+    @apply bg-surface text-navy-900 font-sans antialiased;
+    overflow-x: hidden;
+    width: 100%;
+  }
+  h1, h2, h3, h4 {
+    @apply font-display;
+  }
+  :focus-visible {
+    outline: 2px solid #2563EB;
+    outline-offset: 2px;
+  }
+}
+
+@layer components {
+  /* Buttons */
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl px-5 py-2.5 text-sm font-semibold transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+  .btn-primary {
+    @apply btn bg-navy-900 text-white shadow-soft hover:bg-navy-700 hover:shadow-card active:scale-[0.98];
+  }
+  .btn-secondary {
+    @apply btn bg-brand text-white shadow-soft hover:bg-brand-600 hover:shadow-card active:scale-[0.98];
+  }
+  .btn-accent {
+    @apply btn bg-accent text-white shadow-soft hover:bg-accent-600 hover:shadow-card active:scale-[0.98];
+  }
+  .btn-outline {
+    @apply btn border border-navy-900/15 text-navy-900 bg-white hover:border-brand hover:text-brand hover:bg-brand-50;
+  }
+  .btn-ghost {
+    @apply btn text-navy-700 hover:bg-navy-900/5;
+  }
+
+  /* Cards */
+  .card {
+    @apply bg-white rounded-2xl border border-navy-900/5 shadow-card transition-shadow duration-200;
+  }
+  .card-hover {
+    @apply hover:shadow-lift hover:-translate-y-0.5 transition-all duration-200;
+  }
+
+  /* Glassmorphism */
+  .glass {
+    @apply bg-white/70 backdrop-blur-xl border border-white/40;
+  }
+  .glass-dark {
+    @apply bg-navy-900/60 backdrop-blur-xl border border-white/10;
+  }
+
+  /* Inputs */
+  .input {
+    @apply w-full rounded-xl border border-navy-900/15 bg-white px-4 py-2.5 text-sm text-navy-900 placeholder:text-navy-900/40 focus:border-brand focus:ring-2 focus:ring-brand/20 outline-none transition-all;
+  }
+  .label {
+    @apply block text-xs font-semibold text-navy-700 mb-1.5 tracking-wide;
+  }
+
+  /* Badges */
+  .badge {
+    @apply inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold;
+  }
+  .badge-live {
+    @apply badge bg-accent-50 text-accent-600;
+  }
+  .badge-success {
+    @apply badge bg-emerald-50 text-emerald-600;
+  }
+  .badge-info {
+    @apply badge bg-brand-50 text-brand-700;
+  }
+
+  /* Section container on 8px grid */
+  .container-app {
+    @apply max-w-7xl mx-auto px-6 lg:px-8;
+  }
+}
+
+@keyframes scroll {
+  0% {
+    transform: translateX(0);
+  }
+  100% {
+    transform: translateX(-50%);
+  }
+}
+
+.animate-scroll {
+  animation: scroll 30s linear infinite;
+}
+
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
