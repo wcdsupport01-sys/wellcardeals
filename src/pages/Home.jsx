@@ -203,13 +203,13 @@ const Home = () => {
                       sm:w-[105%]
                       md:w-full
 
-                      max-w-none
-                      md:max-w-[2000px]
+                      max-w-[600px]
+                      md:max-w-[800px]
 
-                      scale-[1.15]
-                      sm:scale-[1.25]
-                      md:scale-[1.25]
-                      lg:scale-[1.9]
+                      scale-[0.85]
+                      sm:scale-[0.9]
+                      md:scale-[0.95]
+                      lg:scale-[1.05]
 
                       translate-x-[-12px]
                       sm:translate-x-0
