@@ -4,7 +4,7 @@ import {
   ShieldCheck, MapPin, Share2, Heart, ChevronLeft, ChevronRight, Gavel, TrendingUp,
   ShoppingCart, CheckCircle2, BadgeCheck, Fuel, Settings2, Gauge, UserCheck,
   Wallet, Truck, PhoneCall, Lock, Calendar, PlayCircle, RotateCw,
-  FileText, Download, Plus, X, AlertCircle, Headphones, MessageCircle,
+  FileText, Download, Plus, X, AlertCircle,
 } from "lucide-react";
 import { supabase, isSupabaseConfigured } from "../lib/supabaseClient";
 import { useAuth } from "../auth/AuthContext";
@@ -205,10 +205,6 @@ const RealCarDetail = () => {
   const minIncrement = car.minimum_increment || 5000;
   const nextMinBid = (currentBid || basePrice || 0) + minIncrement;
 
-  // Seller contact — falls back to a support number if the listing doesn't have its own.
-  const sellerPhone = car.seller_phone || car.contact_phone || "+91 98765 43210";
-  const sellerPhoneDigitsOnly = sellerPhone.replace(/[^0-9]/g, "");
-
   const images = Array.from(new Set([car.thumbnail_url, ...(Array.isArray(car.images) ? car.images : [])].filter(Boolean)));
   const images360 = Array.isArray(car.images_360) ? car.images_360.filter(Boolean) : [];
   const videos = Array.isArray(car.videos) ? car.videos.filter(Boolean) : [];
@@ -316,15 +312,6 @@ const RealCarDetail = () => {
     { icon: FileText, label: "Fast RC Transfer" },
   ];
 
-  // "Why Buy From Us?" quick strip shown right under the price/buy button.
-  const whyBuyFromUs = [
-    { icon: BadgeCheck, l1: "150+", l2: "Point Inspection" },
-    { icon: ShieldCheck, l1: "RC & Legal", l2: "Verified" },
-    { icon: Lock, l1: "Insurance", l2: "Verified" },
-    { icon: UserCheck, l1: "No Hidden", l2: "Charges" },
-    { icon: Truck, l1: "Immediate", l2: "Transfer" },
-  ];
-
   // Quick bid options
   const quickBids = [
     { label: `+${formatINR(minIncrement)}`, amount: nextMinBid },
@@ -333,7 +320,7 @@ const RealCarDetail = () => {
   ];
 
   return (
-    <div className="max-w-6xl mx-auto px-4 py-8 pb-28">
+    <div className="max-w-6xl mx-auto px-4 py-8">
       <DealerApprovalModal isOpen={showApprovalModal} onClose={() => setShowApprovalModal(false)} />
 
       {/* Bid Confirmation Modal */}
@@ -493,25 +480,6 @@ const RealCarDetail = () => {
           <p className="flex items-center gap-1.5 text-[11px] text-emerald-600 mt-3">
             <Lock size={12} /> Secure Transaction — 100% Safe & Secure Payments
           </p>
-
-          {/* Why Buy From Us — quick trust strip under the price/buy box */}
-          <div className="mt-5 border border-gray-200 rounded-xl p-4">
-            <p className="text-xs font-bold text-gray-900 uppercase tracking-wide mb-3">Why Buy From Us?</p>
-            <div className="grid grid-cols-5 gap-2 text-center">
-              {whyBuyFromUs.map(({ icon: Icon, l1, l2 }, i) => (
-                <div key={i} className="flex flex-col items-center gap-1.5">
-                  <span className="flex items-center justify-center w-9 h-9 rounded-full bg-brand-50 text-brand">
-                    <Icon size={16} />
-                  </span>
-                  <p className="text-[10px] font-semibold text-gray-700 leading-tight">
-                    {l1}
-                    <br />
-                    {l2}
-                  </p>
-                </div>
-              ))}
-            </div>
-          </div>
 
           {!isApprovedDealer && role !== "dealer" && (
             <div className="mt-4">
@@ -996,42 +964,6 @@ const RealCarDetail = () => {
           )}
         </div>
       )}
-
-      {/* Sticky bottom contact bar */}
-      <div className="fixed bottom-0 inset-x-0 z-40 bg-navy-gradient border-t border-white/10">
-        <div className="max-w-6xl mx-auto px-4 py-3 flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-2.5 text-white">
-            <span className="flex items-center justify-center w-9 h-9 rounded-full bg-white/10 flex-shrink-0">
-              <Headphones size={16} />
-            </span>
-            <div>
-              <p className="text-sm font-semibold leading-tight">Still have questions?</p>
-              <p className="text-[11px] text-white/60 leading-tight">We're here to help you!</p>
-            </div>
-          </div>
-
-          <a href={`tel:${sellerPhoneDigitsOnly}`} className="flex items-center gap-2 text-white text-sm font-medium hover:text-white/80 transition">
-            <PhoneCall size={15} /> Call Seller <span className="hidden sm:inline">{sellerPhone}</span>
-          </a>
-
-          <div className="flex items-center gap-2">
-            <a
-              href={`https://wa.me/${sellerPhoneDigitsOnly}`}
-              target="_blank"
-              rel="noreferrer"
-              className="flex items-center gap-1.5 border border-emerald-400 text-emerald-400 hover:bg-emerald-400/10 text-sm font-semibold px-4 py-2 rounded-xl transition"
-            >
-              <MessageCircle size={15} /> Chat on WhatsApp
-            </a>
-            <button
-              onClick={() => (user ? setBuyOpen(true) : null)}
-              className="flex items-center gap-1.5 bg-brand hover:bg-brand-600 text-white text-sm font-semibold px-4 py-2 rounded-xl transition"
-            >
-              Make an Offer
-            </button>
-          </div>
-        </div>
-      </div>
     </div>
   );
 };
