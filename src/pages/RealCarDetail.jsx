@@ -143,6 +143,11 @@ const RealCarDetail = () => {
   const [buyError, setBuyError] = useState("");
   const [buySent, setBuySent] = useState(false);
 
+  // EMI calculator state — used in the "Buy Now Listing" panel below.
+  const [downPayment, setDownPayment] = useState("");
+  const [interestRate, setInterestRate] = useState(9.5);
+  const [tenureMonths, setTenureMonths] = useState(36);
+
   const load = useCallback(async () => {
     if (!isSupabaseConfigured) { setError("Supabase isn't configured yet."); setLoading(false); return; }
     setLoading(true);
@@ -204,6 +209,14 @@ const RealCarDetail = () => {
   const displayPrice = currentBid || basePrice;
   const minIncrement = car.minimum_increment || 5000;
   const nextMinBid = (currentBid || basePrice || 0) + minIncrement;
+
+  // EMI calculation — standard reducing-balance formula. loanAmount is the
+  // buy-now price minus whatever down payment the buyer enters.
+  const loanAmount = Math.max((displayPrice || 0) - (Number(downPayment) || 0), 0);
+  const monthlyRate = interestRate / 12 / 100;
+  const emiAmount = monthlyRate > 0
+    ? Math.round((loanAmount * monthlyRate * Math.pow(1 + monthlyRate, tenureMonths)) / (Math.pow(1 + monthlyRate, tenureMonths) - 1))
+    : Math.round(loanAmount / tenureMonths);
 
   const images = Array.from(new Set([car.thumbnail_url, ...(Array.isArray(car.images) ? car.images : [])].filter(Boolean)));
   const images360 = Array.isArray(car.images_360) ? car.images_360.filter(Boolean) : [];
@@ -695,16 +708,82 @@ const RealCarDetail = () => {
             </div>
           </div>
         ) : (
-          <div className="max-w-sm">
-            <p className="text-white/60 text-xs font-semibold uppercase tracking-wide mb-2">Buy Now Listing</p>
-            <p className="text-2xl font-bold">{formatINR(displayPrice)}</p>
-            <p className="text-[11px] text-white/50 mt-1">Instant purchase • No bidding</p>
+          <div className="max-w-md">
+            <p className="text-white/60 text-xs font-semibold uppercase tracking-wide mb-3 flex items-center gap-1.5">
+              <Wallet size={13} /> EMI Calculator
+            </p>
+
+            <div className="grid grid-cols-2 gap-3 mb-4">
+              <div>
+                <label className="text-[10px] text-white/50">Down Payment</label>
+                <div className="relative mt-1">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-white/50 text-sm pointer-events-none">₹</span>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    value={downPayment}
+                    onChange={(e) => setDownPayment(e.target.value.replace(/[^0-9]/g, ""))}
+                    placeholder="0"
+                    style={{ backgroundColor: "rgba(255,255,255,0.15)", color: "#ffffff" }}
+                    className="w-full border border-white/25 placeholder-white/40 rounded-xl pl-7 pr-2 py-2 text-sm font-medium focus:outline-none focus:border-brand focus:bg-white/20"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="text-[10px] text-white/50">Tenure</label>
+                <select
+                  value={tenureMonths}
+                  onChange={(e) => setTenureMonths(Number(e.target.value))}
+                  style={{ backgroundColor: "rgba(255,255,255,0.15)", color: "#ffffff" }}
+                  className="w-full mt-1 border border-white/25 rounded-xl px-2 py-2 text-sm font-medium focus:outline-none focus:border-brand"
+                >
+                  {[12, 24, 36, 48, 60, 72].map((m) => (
+                    <option key={m} value={m} className="text-navy-900">{m} months</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="mb-4">
+              <div className="flex items-center justify-between">
+                <label className="text-[10px] text-white/50">Interest Rate</label>
+                <span className="text-xs text-white/70 font-medium">{interestRate.toFixed(1)}% p.a.</span>
+              </div>
+              <input
+                type="range"
+                min="7"
+                max="16"
+                step="0.1"
+                value={interestRate}
+                onChange={(e) => setInterestRate(Number(e.target.value))}
+                className="w-full mt-1.5 accent-brand"
+              />
+            </div>
+
+            <div className="bg-white/10 border border-white/15 rounded-2xl p-4 text-center">
+              <p className="text-[11px] text-white/60">Estimated Monthly EMI</p>
+              <p className="text-3xl font-extrabold mt-1">{formatINR(emiAmount)}</p>
+              <div className="grid grid-cols-2 gap-2 mt-3 pt-3 border-t border-white/10 text-xs">
+                <div>
+                  <p className="text-white/50">Loan Amount</p>
+                  <p className="font-semibold">{formatINR(loanAmount)}</p>
+                </div>
+                <div>
+                  <p className="text-white/50">Total Payable</p>
+                  <p className="font-semibold">{formatINR(emiAmount * tenureMonths)}</p>
+                </div>
+              </div>
+            </div>
+
+            <p className="text-[10px] text-white/40 mt-2">Indicative only — actual EMI depends on lender terms and eligibility.</p>
+
             {user ? (
-              <button onClick={() => setBuyOpen(true)} className="w-full mt-5 flex items-center justify-center gap-2 bg-white text-navy-900 font-semibold py-3 rounded-xl hover:bg-white/90 transition">
-                <ShoppingCart size={16} /> Buy Now
+              <button onClick={() => setBuyOpen(true)} className="w-full mt-4 flex items-center justify-center gap-2 bg-white text-navy-900 font-semibold py-3 rounded-xl hover:bg-white/90 transition">
+                <ShoppingCart size={16} /> Buy Now — {formatINR(displayPrice)}
               </button>
             ) : (
-              <Link to="/login" className="w-full mt-5 flex items-center justify-center gap-2 bg-white text-navy-900 font-semibold py-3 rounded-xl hover:bg-white/90 transition">
+              <Link to="/login" className="w-full mt-4 flex items-center justify-center gap-2 bg-white text-navy-900 font-semibold py-3 rounded-xl hover:bg-white/90 transition">
                 <ShoppingCart size={16} /> Log In to Buy
               </Link>
             )}
