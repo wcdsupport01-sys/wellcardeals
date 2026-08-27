@@ -4,7 +4,8 @@ import {
   ShieldCheck, MapPin, Share2, Heart, ChevronLeft, ChevronRight, Gavel, TrendingUp,
   ShoppingCart, CheckCircle2, BadgeCheck, Fuel, Settings2, Gauge, UserCheck,
   Wallet, Truck, PhoneCall, Lock, Calendar, PlayCircle, RotateCw,
-  FileText, Download, Plus, X, AlertCircle,
+  FileText, Download, Plus, X, AlertCircle, Tag, CreditCard, MessageCircle, Car,
+  Monitor, Bluetooth, Camera, Wind, Sparkles, RotateCcw as RefundIcon,
 } from "lucide-react";
 import { supabase, isSupabaseConfigured } from "../lib/supabaseClient";
 import { useAuth } from "../auth/AuthContext";
@@ -33,6 +34,20 @@ function useCountdownTo(endTime) {
 }
 
 const pad = (n) => n.toString().padStart(2, "0");
+
+// Small keyword-based icon picker for the Highlights list — falls back to a
+// plain check icon when nothing matches, so any feature text still renders.
+function guessFeatureIcon(text = "") {
+  const t = text.toLowerCase();
+  if (t.includes("steer")) return Settings2;
+  if (t.includes("window")) return Sparkles;
+  if (t.includes("infotainment") || t.includes("touchscreen") || t.includes("display")) return Monitor;
+  if (t.includes("bluetooth")) return Bluetooth;
+  if (t.includes("camera") || t.includes("parking")) return Camera;
+  if (t.includes("airbag") || t.includes("abs") || t.includes("ebd") || t.includes("safety")) return ShieldCheck;
+  if (t.includes("air condition") || t.includes("ac") || t.includes("climate")) return Wind;
+  return CheckCircle2;
+}
 
 // ─── Bid Confirmation Modal ───────────────────────────────────────────────────
 function BidConfirmModal({ isOpen, onClose, onConfirm, amount, currentBid, carTitle, placing }) {
@@ -217,6 +232,8 @@ const RealCarDetail = () => {
   const emiAmount = monthlyRate > 0
     ? Math.round((loanAmount * monthlyRate * Math.pow(1 + monthlyRate, tenureMonths)) / (Math.pow(1 + monthlyRate, tenureMonths) - 1))
     : Math.round(loanAmount / tenureMonths);
+  const totalPayable = emiAmount * tenureMonths;
+  const totalInterest = Math.max(totalPayable - loanAmount, 0);
 
   const images = Array.from(new Set([car.thumbnail_url, ...(Array.isArray(car.images) ? car.images : [])].filter(Boolean)));
   const images360 = Array.isArray(car.images_360) ? car.images_360.filter(Boolean) : [];
@@ -230,6 +247,7 @@ const RealCarDetail = () => {
     ["Infotainment", car.infotainment_features],
   ].map(([label, arr]) => [label, Array.isArray(arr) ? arr.filter(Boolean) : []]).filter(([, arr]) => arr.length > 0);
   const totalFeatureCount = featureGroups.reduce((sum, [, arr]) => sum + arr.length, 0);
+  const highlightFeatures = featureGroups.flatMap(([, arr]) => arr).slice(0, 8);
 
   const noAccident = car.accidental_history && /^(none|no|nil)/i.test(String(car.accidental_history).trim());
 
@@ -237,6 +255,9 @@ const RealCarDetail = () => {
   const inspectedCount = inspectionEntries.filter((e) => e.status).length;
   const isInspected = Boolean(car.inspected_at) && inspectedCount > 0;
   const overallInspectionStatus = !isInspected ? null : inspectionEntries.some((e) => e.status === "poor") ? "poor" : inspectionEntries.some((e) => e.status === "fair") ? "fair" : "good";
+
+  const sellerTypeLabel = car.seller_type || "Certified Dealer";
+  const sellerTypeSub = car.seller_type ? "Direct Owner" : "Verified & Inspected";
 
   // Open confirmation modal instead of placing bid directly
   function initiateBid(amount) {
@@ -292,6 +313,12 @@ const RealCarDetail = () => {
     else setBuySent(true);
   }
 
+  function openTestDriveRequest() {
+    if (!user) return;
+    setBuyMessage((prev) => (prev ? prev : "I'd like to book a test drive for this car."));
+    setBuyOpen(true);
+  }
+
   const scrollTo = (tabId) => {
     setActiveTab(tabId);
     const el = document.getElementById(tabId.toLowerCase().replace(/\s+/g, "-"));
@@ -323,6 +350,14 @@ const RealCarDetail = () => {
     { icon: ShieldCheck, label: "RC & Legal Verified" },
     { icon: Lock, label: "Insurance Verified" },
     { icon: FileText, label: "Fast RC Transfer" },
+  ];
+
+  // Small badges shown right under the price / Buy Now button
+  const priceBadges = [
+    { icon: Lock, label: "Secure Payment" },
+    { icon: CreditCard, label: "Easy Finance" },
+    { icon: RefundIcon, label: "7-Day Refund" },
+    { icon: BadgeCheck, label: "Verified Car" },
   ];
 
   // Quick bid options
@@ -378,15 +413,21 @@ const RealCarDetail = () => {
             <div className="flex-1 min-w-0">
               <div className="relative h-72 md:h-80 rounded-2xl overflow-hidden bg-gray-100 border border-gray-200">
                 <div className="absolute top-3 left-3 z-10 flex flex-wrap items-center gap-1.5 max-w-[85%]">
-                  {car.is_verified && (
-                    <span className="flex items-center gap-1 bg-white/95 text-navy-900 text-[11px] font-semibold px-2.5 py-1 rounded-full shadow-sm">
-                      <BadgeCheck size={12} className="text-brand" /> Verified Vehicle
-                    </span>
-                  )}
                   {isInspected && (
                     <span className="flex items-center gap-1 bg-white/95 text-navy-900 text-[11px] font-semibold px-2.5 py-1 rounded-full shadow-sm capitalize">
                       <CheckCircle2 size={12} className={overallInspectionStatus === "poor" ? "text-red-500" : overallInspectionStatus === "fair" ? "text-amber-500" : "text-emerald-600"} />
                       Inspected — {overallInspectionStatus}
+                    </span>
+                  )}
+                  {images360.length > 0 && (
+                    <a href={images360[0]} target="_blank" rel="noreferrer"
+                      className="flex items-center gap-1 bg-white/95 text-navy-900 text-[11px] font-semibold px-2.5 py-1 rounded-full shadow-sm">
+                      <RotateCw size={12} className="text-brand" /> 360° View
+                    </a>
+                  )}
+                  {car.is_verified && (
+                    <span className="flex items-center gap-1 bg-white/95 text-navy-900 text-[11px] font-semibold px-2.5 py-1 rounded-full shadow-sm">
+                      <BadgeCheck size={12} className="text-brand" /> Verified Vehicle
                     </span>
                   )}
                   {noAccident && (
@@ -425,7 +466,7 @@ const RealCarDetail = () => {
               [Fuel, car.fuel_type_id ? "Petrol" : null, "Fuel"],
               [Settings2, car.transmission_id ? "Manual" : null, "Transmission"],
               [Gauge, car.mileage_km != null ? `${Math.round(Number(car.mileage_km) / 1000)}k km` : null, "Driven"],
-              [MapPin, car.location, "Delhi RTO"],
+              [MapPin, car.registration_state || car.location, "RTO"],
               [UserCheck, car.ownership ? `${car.ownership} Owner` : null, "Ownership"],
             ].filter(([, v]) => v).map(([Icon, value, label], i) => (
               <div key={i} className="border border-gray-200 rounded-lg p-2 text-center">
@@ -436,18 +477,11 @@ const RealCarDetail = () => {
             ))}
           </div>
 
-          {(images360.length > 0 || videos.length > 0) && (
+          {videos.length > 0 && (
             <div className="flex gap-2 mt-3">
-              {images360.length > 0 && (
-                <a href={images360[0]} target="_blank" rel="noreferrer" className="flex-1 flex items-center justify-center gap-1.5 border border-gray-200 rounded-xl py-2 text-xs font-semibold text-gray-700 hover:bg-gray-50">
-                  <RotateCw size={14} /> 360° View
-                </a>
-              )}
-              {videos.length > 0 && (
-                <a href={videos[0]} target="_blank" rel="noreferrer" className="flex-1 flex items-center justify-center gap-1.5 border border-gray-200 rounded-xl py-2 text-xs font-semibold text-gray-700 hover:bg-gray-50">
-                  <PlayCircle size={14} /> Watch Video
-                </a>
-              )}
+              <a href={videos[0]} target="_blank" rel="noreferrer" className="flex-1 flex items-center justify-center gap-1.5 border border-gray-200 rounded-xl py-2 text-xs font-semibold text-gray-700 hover:bg-gray-50">
+                <PlayCircle size={14} /> Watch Video
+              </a>
             </div>
           )}
         </div>
@@ -472,7 +506,12 @@ const RealCarDetail = () => {
 
           <div className="mt-4 border border-gray-200 rounded-xl p-4">
             <p className="text-xs text-gray-400">Best Price</p>
-            <p className="text-3xl font-bold text-gray-900 mt-0.5">{formatINR(displayPrice)}</p>
+            <div className="flex items-center gap-2 mt-0.5">
+              <p className="text-3xl font-bold text-gray-900">{formatINR(displayPrice)}</p>
+              <span className="flex items-center gap-1 bg-emerald-50 text-emerald-600 text-[11px] font-semibold px-2 py-1 rounded-full">
+                <Tag size={11} /> Great Price
+              </span>
+            </div>
             <p className="text-[11px] text-gray-400 mt-1">Inclusive of all charges</p>
           </div>
 
@@ -490,9 +529,14 @@ const RealCarDetail = () => {
             )}
           </div>
 
-          <p className="flex items-center gap-1.5 text-[11px] text-emerald-600 mt-3">
-            <Lock size={12} /> Secure Transaction — 100% Safe & Secure Payments
-          </p>
+          {/* Small trust badges under the CTA */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-3">
+            {priceBadges.map(({ icon: Icon, label }) => (
+              <span key={label} className="flex items-center gap-1.5 text-[11px] text-gray-600">
+                <Icon size={13} className="text-brand flex-shrink-0" /> {label}
+              </span>
+            ))}
+          </div>
 
           {!isApprovedDealer && role !== "dealer" && (
             <div className="mt-4">
@@ -536,7 +580,7 @@ const RealCarDetail = () => {
 
       </div>
 
-      {/* Auction Panel — full width, moved down from the sidebar */}
+      {/* Auction Panel / EMI Panel — full width */}
       <div className="bg-navy-gradient text-white rounded-2xl p-5 md:p-6 mt-6">
         {car.listing_type !== "buy_now_only" ? (
           <div className="grid md:grid-cols-2 gap-6">
@@ -708,85 +752,108 @@ const RealCarDetail = () => {
             </div>
           </div>
         ) : (
-          <div className="max-w-md">
-            <p className="text-white/60 text-xs font-semibold uppercase tracking-wide mb-3 flex items-center gap-1.5">
-              <Wallet size={13} /> EMI Calculator
-            </p>
+          <div className="grid md:grid-cols-2 gap-6 items-start">
+            {/* Left half: EMI calculator */}
+            <div>
+              <p className="text-white/60 text-xs font-semibold uppercase tracking-wide mb-3 flex items-center gap-1.5">
+                <Wallet size={13} /> EMI Calculator
+              </p>
 
-            <div className="grid grid-cols-2 gap-3 mb-4">
-              <div>
-                <label className="text-[10px] text-white/50">Down Payment</label>
-                <div className="relative mt-1">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-white/50 text-sm pointer-events-none">₹</span>
-                  <input
-                    type="text"
-                    inputMode="numeric"
-                    pattern="[0-9]*"
-                    value={downPayment}
-                    onChange={(e) => setDownPayment(e.target.value.replace(/[^0-9]/g, ""))}
-                    placeholder="0"
+              <div className="grid grid-cols-2 gap-3 mb-4">
+                <div>
+                  <label className="text-[10px] text-white/50">Down Payment</label>
+                  <div className="relative mt-1">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-white/50 text-sm pointer-events-none">₹</span>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      pattern="[0-9]*"
+                      value={downPayment}
+                      onChange={(e) => setDownPayment(e.target.value.replace(/[^0-9]/g, ""))}
+                      placeholder="0"
+                      style={{ backgroundColor: "rgba(255,255,255,0.15)", color: "#ffffff" }}
+                      className="w-full border border-white/25 placeholder-white/40 rounded-xl pl-7 pr-2 py-2 text-sm font-medium focus:outline-none focus:border-brand focus:bg-white/20"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="text-[10px] text-white/50">Tenure</label>
+                  <select
+                    value={tenureMonths}
+                    onChange={(e) => setTenureMonths(Number(e.target.value))}
                     style={{ backgroundColor: "rgba(255,255,255,0.15)", color: "#ffffff" }}
-                    className="w-full border border-white/25 placeholder-white/40 rounded-xl pl-7 pr-2 py-2 text-sm font-medium focus:outline-none focus:border-brand focus:bg-white/20"
-                  />
+                    className="w-full mt-1 border border-white/25 rounded-xl px-2 py-2 text-sm font-medium focus:outline-none focus:border-brand"
+                  >
+                    {[12, 24, 36, 48, 60, 72].map((m) => (
+                      <option key={m} value={m} className="text-navy-900">{m} months</option>
+                    ))}
+                  </select>
                 </div>
               </div>
-              <div>
-                <label className="text-[10px] text-white/50">Tenure</label>
-                <select
-                  value={tenureMonths}
-                  onChange={(e) => setTenureMonths(Number(e.target.value))}
-                  style={{ backgroundColor: "rgba(255,255,255,0.15)", color: "#ffffff" }}
-                  className="w-full mt-1 border border-white/25 rounded-xl px-2 py-2 text-sm font-medium focus:outline-none focus:border-brand"
-                >
-                  {[12, 24, 36, 48, 60, 72].map((m) => (
-                    <option key={m} value={m} className="text-navy-900">{m} months</option>
-                  ))}
-                </select>
-              </div>
-            </div>
 
-            <div className="mb-4">
-              <div className="flex items-center justify-between">
-                <label className="text-[10px] text-white/50">Interest Rate</label>
-                <span className="text-xs text-white/70 font-medium">{interestRate.toFixed(1)}% p.a.</span>
-              </div>
-              <input
-                type="range"
-                min="7"
-                max="16"
-                step="0.1"
-                value={interestRate}
-                onChange={(e) => setInterestRate(Number(e.target.value))}
-                className="w-full mt-1.5 accent-brand"
-              />
-            </div>
-
-            <div className="bg-white/10 border border-white/15 rounded-2xl p-4 text-center">
-              <p className="text-[11px] text-white/60">Estimated Monthly EMI</p>
-              <p className="text-3xl font-extrabold mt-1">{formatINR(emiAmount)}</p>
-              <div className="grid grid-cols-2 gap-2 mt-3 pt-3 border-t border-white/10 text-xs">
-                <div>
-                  <p className="text-white/50">Loan Amount</p>
-                  <p className="font-semibold">{formatINR(loanAmount)}</p>
+              <div className="mb-4">
+                <div className="flex items-center justify-between">
+                  <label className="text-[10px] text-white/50">Interest Rate</label>
+                  <span className="text-xs text-white/70 font-medium">{interestRate.toFixed(1)}% p.a.</span>
                 </div>
-                <div>
-                  <p className="text-white/50">Total Payable</p>
-                  <p className="font-semibold">{formatINR(emiAmount * tenureMonths)}</p>
+                <input
+                  type="range"
+                  min="7"
+                  max="16"
+                  step="0.1"
+                  value={interestRate}
+                  onChange={(e) => setInterestRate(Number(e.target.value))}
+                  className="w-full mt-1.5 accent-brand"
+                />
+              </div>
+
+              <div className="bg-white/10 border border-white/15 rounded-2xl p-4 text-center">
+                <p className="text-[11px] text-white/60">Estimated Monthly EMI</p>
+                <p className="text-3xl font-extrabold mt-1">{formatINR(emiAmount)}</p>
+                <div className="grid grid-cols-2 gap-2 mt-3 pt-3 border-t border-white/10 text-xs">
+                  <div>
+                    <p className="text-white/50">Total Interest</p>
+                    <p className="font-semibold">{formatINR(totalInterest)}</p>
+                  </div>
+                  <div>
+                    <p className="text-white/50">Total Payable</p>
+                    <p className="font-semibold">{formatINR(totalPayable)}</p>
+                  </div>
                 </div>
               </div>
+
+              <p className="text-[10px] text-white/40 mt-2">Indicative only — actual EMI depends on lender terms and eligibility.</p>
             </div>
 
-            <p className="text-[10px] text-white/40 mt-2">Indicative only — actual EMI depends on lender terms and eligibility.</p>
-
-            {user ? (
-              <button onClick={() => setBuyOpen(true)} className="w-full mt-4 flex items-center justify-center gap-2 bg-white text-navy-900 font-semibold py-3 rounded-xl hover:bg-white/90 transition">
-                <ShoppingCart size={16} /> Buy Now — {formatINR(displayPrice)}
-              </button>
-            ) : (
-              <Link to="/login" className="w-full mt-4 flex items-center justify-center gap-2 bg-white text-navy-900 font-semibold py-3 rounded-xl hover:bg-white/90 transition">
-                <ShoppingCart size={16} /> Log In to Buy
-              </Link>
-            )}
+            {/* Right half: "Make it yours today" panel */}
+            <div className="bg-white/5 border border-white/10 rounded-2xl p-5">
+              <p className="text-sm font-bold text-white mb-3">Make it yours today!</p>
+              <ul className="space-y-2.5 mb-5">
+                {["Lowest Interest Rates", "Quick Approval", "Minimal Documentation"].map((item) => (
+                  <li key={item} className="flex items-center gap-2 text-sm text-white/80">
+                    <CheckCircle2 size={15} className="text-brand flex-shrink-0" /> {item}
+                  </li>
+                ))}
+              </ul>
+              {user ? (
+                <button onClick={() => setBuyOpen(true)} className="w-full flex items-center justify-center gap-2 bg-white text-navy-900 font-semibold py-3 rounded-xl hover:bg-white/90 transition">
+                  Check Eligibility
+                </button>
+              ) : (
+                <Link to="/login" className="w-full flex items-center justify-center gap-2 bg-white text-navy-900 font-semibold py-3 rounded-xl hover:bg-white/90 transition">
+                  Log In to Check Eligibility
+                </Link>
+              )}
+              {user ? (
+                <button onClick={() => setBuyOpen(true)} className="w-full mt-3 flex items-center justify-center gap-2 border border-white/25 text-white font-semibold py-3 rounded-xl hover:bg-white/10 transition">
+                  <ShoppingCart size={16} /> Buy Now — {formatINR(displayPrice)}
+                </button>
+              ) : (
+                <Link to="/login" className="w-full mt-3 flex items-center justify-center gap-2 border border-white/25 text-white font-semibold py-3 rounded-xl hover:bg-white/10 transition">
+                  <ShoppingCart size={16} /> Log In to Buy
+                </Link>
+              )}
+            </div>
           </div>
         )}
       </div>
@@ -858,9 +925,22 @@ const RealCarDetail = () => {
           ) : <p className="text-sm text-gray-400">Inspection report not available for this listing yet.</p>}
         </div>
 
+        {/* Highlights — quick glance at the top features, mirrors "Specifications" slot */}
         <div className="border border-gray-200 rounded-xl p-5">
-          <h2 className="text-sm font-bold text-red-600 mb-3">SPECIFICATIONS</h2>
-          {specifications.length > 0 ? (
+          <h2 className="text-sm font-bold text-red-600 mb-3">HIGHLIGHTS</h2>
+          {highlightFeatures.length > 0 ? (
+            <div className="grid grid-cols-2 gap-3">
+              {highlightFeatures.map((f) => {
+                const Icon = guessFeatureIcon(f);
+                return (
+                  <div key={f} className="flex items-center gap-2">
+                    <span className="flex items-center justify-center w-7 h-7 rounded-full bg-brand-50 text-brand flex-shrink-0"><Icon size={13} /></span>
+                    <p className="text-xs font-medium text-gray-700 leading-tight">{f}</p>
+                  </div>
+                );
+              })}
+            </div>
+          ) : specifications.length > 0 ? (
             <dl className="text-sm divide-y divide-gray-100">
               {specifications.map(([label, value]) => (
                 <div key={label} className="flex justify-between py-2">
@@ -869,8 +949,8 @@ const RealCarDetail = () => {
                 </div>
               ))}
             </dl>
-          ) : <p className="text-sm text-gray-400">No additional specifications added yet.</p>}
-          {totalFeatureCount > 0 && (
+          ) : <p className="text-sm text-gray-400">No highlights added yet.</p>}
+          {totalFeatureCount > highlightFeatures.length && (
             <button onClick={() => scrollTo("Features")} className="mt-4 w-full text-xs font-semibold text-brand hover:text-brand-600 flex items-center justify-center gap-1">
               View all {totalFeatureCount} features <ChevronRight size={12} />
             </button>
@@ -889,7 +969,18 @@ const RealCarDetail = () => {
               </li>
             ))}
           </ul>
-          <div className="mt-5 border border-gray-200 rounded-xl p-3 text-center">
+        </div>
+
+        <div className="border border-gray-200 rounded-xl p-5">
+          <h2 className="text-sm font-bold text-red-600 mb-3">SELLER TYPE</h2>
+          <div className="flex items-center gap-3 mb-4">
+            <span className="flex items-center justify-center w-10 h-10 rounded-full bg-brand-50 text-brand flex-shrink-0"><UserCheck size={18} /></span>
+            <div>
+              <p className="text-sm font-semibold text-gray-900">{sellerTypeLabel}</p>
+              <p className="text-[11px] text-gray-400">{sellerTypeSub}</p>
+            </div>
+          </div>
+          <div className="border border-gray-200 rounded-xl p-3 text-center">
             <p className="text-sm font-semibold text-gray-900">Have Questions?</p>
             <p className="text-[11px] text-gray-400 mb-2">Request a callback from our experts</p>
             <button onClick={() => (user ? setBuyOpen(true) : scrollTo("Overview"))} className="w-full flex items-center justify-center gap-1.5 border border-brand text-brand text-sm font-semibold py-2 rounded-lg hover:bg-brand-50 transition">
@@ -916,7 +1007,7 @@ const RealCarDetail = () => {
           </div>
         </div>
 
-        <div className="border border-gray-200 rounded-xl p-5">
+        <div className="border border-gray-200 rounded-xl p-5 md:col-span-2">
           <h2 className="text-sm font-bold text-red-600 mb-3">LATEST UPDATES</h2>
           <ul className="text-sm space-y-3">
             {[
@@ -981,6 +1072,45 @@ const RealCarDetail = () => {
             ))}
           </div>
         ) : <p className="text-sm text-gray-400">No documents uploaded for this listing yet.</p>}
+      </div>
+
+      {/* Questions / Test Drive bar — matches the bottom action bar in the reference design */}
+      <div className="flex flex-col sm:flex-row items-center justify-between gap-4 border border-gray-200 rounded-xl px-5 py-4 mt-6 bg-white">
+        <div className="flex items-center gap-3">
+          <span className="flex items-center justify-center w-10 h-10 rounded-full bg-brand-50 text-brand flex-shrink-0"><MessageCircle size={18} /></span>
+          <div>
+            <p className="text-sm font-semibold text-gray-900">Still have questions?</p>
+            <p className="text-[11px] text-gray-400">Our team is here to help you</p>
+          </div>
+        </div>
+        <Link to="/contact" className="flex items-center justify-center gap-1.5 border border-gray-300 text-gray-700 text-sm font-semibold px-4 py-2.5 rounded-lg hover:bg-gray-50 transition whitespace-nowrap">
+          <MessageCircle size={15} /> Chat with Us
+        </Link>
+        <div className="hidden sm:block flex-1" />
+        <div className="flex items-center gap-3">
+          <div className="hidden md:block text-right">
+            <p className="text-sm font-semibold text-gray-900">Don't miss out on this great deal!</p>
+            <p className="text-[11px] text-gray-400">Book now and drive your dream car</p>
+          </div>
+          {user ? (
+            <button onClick={openTestDriveRequest} className="flex items-center justify-center gap-1.5 border border-gray-300 text-gray-700 text-sm font-semibold px-4 py-2.5 rounded-lg hover:bg-gray-50 transition whitespace-nowrap">
+              <Car size={15} /> Book Test Drive
+            </button>
+          ) : (
+            <Link to="/login" className="flex items-center justify-center gap-1.5 border border-gray-300 text-gray-700 text-sm font-semibold px-4 py-2.5 rounded-lg hover:bg-gray-50 transition whitespace-nowrap">
+              <Car size={15} /> Book Test Drive
+            </Link>
+          )}
+          {user ? (
+            <button onClick={() => setBuyOpen(true)} className="flex items-center justify-center gap-1.5 bg-navy-900 hover:bg-navy-700 text-white text-sm font-semibold px-4 py-2.5 rounded-lg transition whitespace-nowrap">
+              <ShoppingCart size={15} /> Buy Now
+            </button>
+          ) : (
+            <Link to="/login" className="flex items-center justify-center gap-1.5 bg-navy-900 hover:bg-navy-700 text-white text-sm font-semibold px-4 py-2.5 rounded-lg transition whitespace-nowrap">
+              <ShoppingCart size={15} /> Buy Now
+            </Link>
+          )}
+        </div>
       </div>
 
       {/* Bottom sections */}
