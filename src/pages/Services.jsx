@@ -131,11 +131,11 @@ const DEALER_POINTS = [
   "Real-time bid notifications",
   "Bid history & reports",
   "Analytics & performance insights",
+  "Place bids in real-time",
 ];
 
 const BUYER_POINTS = [
   "Search from thousands of verified cars",
-  "Place bids in real-time",
   "Detailed inspection reports",
   "Best deals at the right price",
   "Easy & secure payments",
