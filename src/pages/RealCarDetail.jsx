@@ -183,6 +183,8 @@ const RealCarDetail = () => {
 
   // Share — copies the current page link and shows a brief "copied" state.
   const [justCopied, setJustCopied] = useState(false);
+  const [wishlistError, setWishlistError] = useState("");
+  const [shareError, setShareError] = useState("");
 
   const load = useCallback(async () => {
     if (!isSupabaseConfigured) { setError("Supabase isn't configured yet."); setLoading(false); return; }
@@ -345,47 +347,69 @@ const RealCarDetail = () => {
   // Toggle this car in/out of the logged-in buyer's wishlist (`wishlist`
   // table — same one SavedCarsPage.jsx reads from).
   async function toggleWishlist() {
+    if (!isSupabaseConfigured) {
+      setWishlistError("Saved cars aren't available right now.");
+      return;
+    }
     if (!user) {
       window.location.href = "/login";
       return;
     }
+    setWishlistError("");
     setWishlistSaving(true);
     if (wishlistRowId) {
       const { error } = await supabase.from("wishlist").delete().eq("id", wishlistRowId);
-      if (!error) setWishlistRowId(null);
+      setWishlistSaving(false);
+      if (error) {
+        setWishlistError(error.message || "Couldn't remove from saved cars.");
+        return;
+      }
+      setWishlistRowId(null);
     } else {
       const { data, error } = await supabase
         .from("wishlist")
         .insert({ buyer_id: user.id, car_id: car.id })
         .select("id")
         .single();
-      if (!error) setWishlistRowId(data.id);
+      setWishlistSaving(false);
+      if (error) {
+        setWishlistError(error.message || "Couldn't save this car.");
+        return;
+      }
+      setWishlistRowId(data.id);
     }
-    setWishlistSaving(false);
   }
 
   // Share this car's page — native share sheet on mobile, clipboard copy
-  // (with a brief "copied" confirmation) everywhere else.
+  // (with a brief "copied" confirmation) everywhere else. Falls back to a
+  // visible prompt if both the share sheet and clipboard access are blocked
+  // (e.g. no HTTPS/user-gesture context), so the button never looks "dead".
   async function shareCar() {
+    setShareError("");
     const shareData = {
-      title: car.vehicle_title,
-      text: `Check out this ${car.vehicle_title} on WellCarDeals`,
+      title: car?.vehicle_title || "WellCarDeals",
+      text: `Check out this ${car?.vehicle_title || "car"} on WellCarDeals`,
       url: window.location.href,
     };
     if (navigator.share) {
       try {
         await navigator.share(shareData);
-      } catch {
-        // user cancelled the share sheet — no-op
+      } catch (err) {
+        // AbortError = user cancelled the share sheet — no-op.
+        if (err?.name !== "AbortError") {
+          setShareError("Couldn't open the share sheet.");
+        }
       }
       return;
     }
     try {
+      if (!navigator.clipboard) throw new Error("Clipboard unavailable");
       await navigator.clipboard.writeText(window.location.href);
       setJustCopied(true);
       setTimeout(() => setJustCopied(false), 2000);
     } catch {
-      // clipboard unavailable — nothing more we can do silently
+      // Last-resort fallback so the link is still shareable somehow.
+      window.prompt("Copy this link to share:", window.location.href);
     }
   }
 
@@ -561,9 +585,14 @@ const RealCarDetail = () => {
               <h1 className="text-2xl font-bold text-gray-900 leading-tight">{car.vehicle_title}</h1>
               {(car.variant || car.category_id) && <p className="text-sm text-gray-500 mt-1">{car.variant}</p>}
             </div>
-            <div className="flex items-center gap-3 text-gray-400 flex-shrink-0">
-              <ShareButton onShare={shareCar} justCopied={justCopied} size={18} className="hover:text-gray-700" />
-              <WishlistButton isSaved={Boolean(wishlistRowId)} saving={wishlistSaving} onToggle={toggleWishlist} size={18} className="hover:text-gray-700" />
+            <div className="flex flex-col items-end gap-1 flex-shrink-0">
+              <div className="flex items-center gap-3 text-gray-400">
+                <ShareButton onShare={shareCar} justCopied={justCopied} size={18} className="hover:text-gray-700" />
+                <WishlistButton isSaved={Boolean(wishlistRowId)} saving={wishlistSaving} onToggle={toggleWishlist} size={18} className="hover:text-gray-700" />
+              </div>
+              {(wishlistError || shareError) && (
+                <p className="text-[11px] text-red-500 text-right max-w-[160px]">{wishlistError || shareError}</p>
+              )}
             </div>
           </div>
 
