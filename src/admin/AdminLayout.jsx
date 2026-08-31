@@ -1,5 +1,5 @@
 import { NavLink, Outlet, useNavigate, Link } from "react-router-dom";
-import { LayoutDashboard, PlusSquare, ListTree, Car, LogOut, Users, UserCog, Gavel, Handshake, ShoppingCart, FileText, Home, Boxes, ShieldCheck, ClipboardList, UserCheck } from "lucide-react";
+import { LayoutDashboard, PlusSquare, ListTree, Car, LogOut, Users, UserCog, Gavel, Handshake, ShoppingCart, FileText, Home, Boxes, ShieldCheck, ClipboardList, UserCheck, Mail } from "lucide-react";
 import { useAuth } from "../auth/AuthContext";
 
 // `roles` = which of admin / manager / team_lead see this item. Keeping the
@@ -19,6 +19,7 @@ const NAV = [
   { to: "/admin/buy-requests", label: "Buy Now Requests", icon: ShoppingCart, roles: ["admin", "manager", "team_lead"] },
   { to: "/admin/auction-requests", label: "Sell Requests", icon: FileText, roles: ["admin", "manager", "team_lead"] },
   { to: "/admin/agent-submissions", label: "Agent Submissions", icon: UserCheck, roles: ["admin", "manager", "team_lead"] },
+  { to: "/admin/enquiries", label: "Enquiries", icon: Mail, roles: ["admin", "manager", "team_lead"] },
   { to: "/admin/dealers", label: "Manage Dealers", icon: Users, roles: ["admin", "manager"] },
   { to: "/admin/dealer-applications", label: "Dealer Applications", icon: ClipboardList, roles: ["admin", "manager"] },
   { to: "/admin/agents", label: "Manage Agents", icon: UserCog, roles: ["admin"] },
