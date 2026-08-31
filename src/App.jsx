@@ -62,6 +62,7 @@ import NegotiatePage from "./admin/pages/NegotiatePage";
 import ManageBuyRequestsPage from "./admin/pages/ManageBuyRequestsPage";
 import ManageAuctionRequestsPage from "./admin/pages/ManageAuctionRequestsPage";
 import ManageAgentSubmissionsPage from "./admin/pages/ManageAgentSubmissionsPage";
+import ManageEnquiriesPage from "./admin/pages/ManageEnquiriesPage";
 import StaffOnly from "./auth/StaffOnly";
 
 import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-dom";
@@ -293,6 +294,14 @@ function App() {
               element={
                 <StaffOnly allow={["admin", "manager", "team_lead"]}>
                   <ManageLookupsPage />
+                </StaffOnly>
+              }
+            />
+            <Route
+              path="enquiries"
+              element={
+                <StaffOnly allow={["admin", "manager", "team_lead"]}>
+                  <ManageEnquiriesPage />
                 </StaffOnly>
               }
             />
