@@ -834,7 +834,8 @@ const RealCarDetail = () => {
             </div>
           </div>
         ) : (
-          <div className="max-w-md">
+          <div className="grid md:grid-cols-2 gap-6">
+          <div>
             <p className="text-white/60 text-xs font-semibold uppercase tracking-wide mb-3 flex items-center gap-1.5">
               <Wallet size={13} /> EMI Calculator
             </p>
@@ -913,6 +914,34 @@ const RealCarDetail = () => {
                 <ShoppingCart size={16} /> Log In to Buy
               </Link>
             )}
+          </div>
+
+          {/* Sold By — moved up beside the EMI calculator */}
+          <div className="bg-white/5 border border-white/10 rounded-2xl p-4 md:p-5">
+            <p className="text-[11px] text-white/50 uppercase tracking-wide">Sold By</p>
+            <h2 className="text-base font-bold text-white flex items-center gap-1.5 mt-0.5">
+              Well Cars Deal <BadgeCheck size={16} className="text-brand" />
+            </h2>
+            <p className="text-xs text-white/40 mb-4">Trusted Marketplace</p>
+            <ul className="space-y-3">
+              {trustBullets.map(({ icon: Icon, title, sub }) => (
+                <li key={title} className="flex items-start gap-3">
+                  <span className="mt-0.5 text-brand"><Icon size={16} /></span>
+                  <div>
+                    <p className="text-sm font-medium text-white leading-tight">{title}</p>
+                    <p className="text-[11px] text-white/40">{sub}</p>
+                  </div>
+                </li>
+              ))}
+            </ul>
+            <div className="mt-5 border border-white/15 rounded-xl p-3 text-center">
+              <p className="text-sm font-semibold text-white">Have Questions?</p>
+              <p className="text-[11px] text-white/40 mb-2">Request a callback from our experts</p>
+              <button onClick={() => (user ? setBuyOpen(true) : scrollTo("Overview"))} className="w-full flex items-center justify-center gap-1.5 border border-brand text-brand text-sm font-semibold py-2 rounded-lg hover:bg-brand/10 transition">
+                <PhoneCall size={14} /> Request Callback
+              </button>
+            </div>
+          </div>
           </div>
         )}
       </div>
@@ -996,72 +1025,34 @@ const RealCarDetail = () => {
               ))}
             </dl>
           ) : <p className="text-sm text-gray-400">No additional specifications added yet.</p>}
+
+          <div className="mt-5 pt-4 border-t border-gray-100">
+            <h3 className="text-xs font-bold text-red-600 mb-3">LATEST UPDATES</h3>
+            <ul className="text-sm space-y-3">
+              {[
+                car.service_history && `Service history: ${car.service_history}`,
+                car.accidental_history && `Accident history: ${car.accidental_history}`,
+                car.rc_status && `RC status: ${car.rc_status}`,
+                car.puc_status && `PUC status: ${car.puc_status}`,
+                car.is_verified && "Documents and condition verified",
+                car.number_of_keys != null && `${car.number_of_keys} key(s) available`,
+              ].filter(Boolean).map((line, i) => (
+                <li key={i} className="flex items-start justify-between gap-2">
+                  <span className="text-gray-600">{line}</span>
+                  <span className="flex-shrink-0 bg-red-600 text-white text-[10px] font-semibold px-2 py-0.5 rounded">NEW</span>
+                </li>
+              ))}
+              {![car.service_history, car.accidental_history, car.rc_status, car.puc_status, car.is_verified, car.number_of_keys].some(Boolean) && (
+                <p className="text-sm text-gray-400">No updates added yet.</p>
+              )}
+            </ul>
+          </div>
+
           {totalFeatureCount > 0 && (
             <button onClick={() => scrollTo("Features")} className="mt-4 w-full text-xs font-semibold text-brand hover:text-brand-600 flex items-center justify-center gap-1">
               View all {totalFeatureCount} features <ChevronRight size={12} />
             </button>
           )}
-        </div>
-
-        <div className="border border-gray-200 rounded-xl p-5">
-          <p className="text-[11px] text-gray-400 uppercase tracking-wide">Sold By</p>
-          <h2 className="text-base font-bold text-gray-900 flex items-center gap-1.5 mt-0.5">Well Cars Deal <BadgeCheck size={16} className="text-brand" /></h2>
-          <p className="text-xs text-gray-400 mb-4">Trusted Marketplace</p>
-          <ul className="space-y-3">
-            {trustBullets.map(({ icon: Icon, title, sub }) => (
-              <li key={title} className="flex items-start gap-3">
-                <span className="mt-0.5 text-brand"><Icon size={16} /></span>
-                <div><p className="text-sm font-medium text-gray-900 leading-tight">{title}</p><p className="text-[11px] text-gray-400">{sub}</p></div>
-              </li>
-            ))}
-          </ul>
-          <div className="mt-5 border border-gray-200 rounded-xl p-3 text-center">
-            <p className="text-sm font-semibold text-gray-900">Have Questions?</p>
-            <p className="text-[11px] text-gray-400 mb-2">Request a callback from our experts</p>
-            <button onClick={() => (user ? setBuyOpen(true) : scrollTo("Overview"))} className="w-full flex items-center justify-center gap-1.5 border border-brand text-brand text-sm font-semibold py-2 rounded-lg hover:bg-brand-50 transition">
-              <PhoneCall size={14} /> Request Callback
-            </button>
-          </div>
-        </div>
-
-        <div className="border border-gray-200 rounded-xl p-5">
-          <h2 className="text-sm font-bold text-red-600 mb-3">PRICE DETAILS</h2>
-          <dl className="text-sm divide-y divide-gray-100">
-            {[["Starting Bid", car.starting_bid], ["Reserve Price", car.reserve_price], ["Buy Now Price", car.buy_now_price], ["Bid Increment", minIncrement]]
-              .filter(([, v]) => v !== null && v !== undefined)
-              .map(([label, value]) => (
-                <div key={label} className="flex justify-between py-2">
-                  <dt className="text-gray-500">{label}</dt>
-                  <dd className="font-medium text-gray-900">{formatINR(value)}</dd>
-                </div>
-              ))}
-          </dl>
-          <div className="mt-3 pt-3 border-t border-gray-100 flex justify-between text-sm">
-            <span className="text-gray-500">Current Price</span>
-            <span className="font-bold text-gray-900">{formatINR(displayPrice)}</span>
-          </div>
-        </div>
-
-        <div className="border border-gray-200 rounded-xl p-5">
-          <h2 className="text-sm font-bold text-red-600 mb-3">LATEST UPDATES</h2>
-          <ul className="text-sm space-y-3">
-            {[
-              car.service_history && `Service history: ${car.service_history}`,
-              car.accidental_history && `Accident history: ${car.accidental_history}`,
-              car.rc_status && `RC status: ${car.rc_status}`,
-              car.puc_status && `PUC status: ${car.puc_status}`,
-              car.is_verified && "Documents and condition verified",
-              car.number_of_keys != null && `${car.number_of_keys} key(s) available`,
-            ].filter(Boolean).map((line, i) => (
-              <li key={i} className="flex items-start justify-between gap-2">
-                <span className="text-gray-600">{line}</span>
-                <span className="flex-shrink-0 bg-red-600 text-white text-[10px] font-semibold px-2 py-0.5 rounded">NEW</span>
-              </li>
-            ))}
-            {![car.service_history, car.accidental_history, car.rc_status, car.puc_status, car.is_verified, car.number_of_keys].some(Boolean) && (
-              <p className="text-sm text-gray-400">No updates added yet.</p>
-            )}
-          </ul>
         </div>
 
         {car.description && (
