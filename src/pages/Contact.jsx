@@ -98,7 +98,7 @@ const Contact = () => {
                         <h3 className="font-semibold text-lg">{item.title}</h3>
 
                         {item.link ? (
-                            
+                            <a
                                 href={item.link}
                                 target={item.link.startsWith("http") ? "_blank" : undefined}
                                 rel={item.link.startsWith("http") ? "noreferrer" : undefined}
