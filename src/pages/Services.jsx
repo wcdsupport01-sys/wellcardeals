@@ -23,6 +23,7 @@ import {
   ChevronDown,
   Search,
   HelpCircle,
+  ClipboardCheck,
 } from "lucide-react";
 import heroCar from "../assets/hero-car-new.png";
 import neonRings from "../assets/neon-rings-bg.png";
@@ -66,6 +67,13 @@ const SERVICES = [
     desc: "Instant RC status check and vehicle registration verification.",
     to: "/rc-check",
     tone: "brand",
+  },
+  {
+    icon: ClipboardCheck,
+    title: "PDI Service",
+    desc: "Pre-delivery inspection — a final 150+ point check before your car is handed over.",
+    to: "/pdi-service",
+    tone: "teal",
   },
   {
     icon: Calculator,
