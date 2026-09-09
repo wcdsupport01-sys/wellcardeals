@@ -2,7 +2,7 @@ import { Link } from "react-router-dom";
 import { Phone, Mail, HelpCircle, ArrowRight } from "lucide-react";
 
 const CONTACTS = [
-  { icon: Phone, title: "Call Us", value: "+91 72899 06245", href: "tel:+917289906245" },
+  { icon: Phone, title: "Call Us", value: "+91 78360 08277", href: "tel:+917836008277" },
   { icon: Mail, title: "Email", value: "wellcardeal@gmail.com", href: "mailto:wellcardeal@gmail.com" },
 ];
 
