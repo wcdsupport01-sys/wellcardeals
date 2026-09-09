@@ -8,6 +8,7 @@ import RealCarDetail from "./pages/RealCarDetail";
 import BuyCar from "./pages/BuyCar";
 import SellCar from "./pages/SellCar";
 import RCCheck from "./pages/RCCheck";
+import PDIService from "./pages/PDIService";
 import ChallanCheck from "./pages/ChallanCheck";
 import CarLoanEmi from "./pages/CarLoanEmi";
 import Footer from "./components/Footer";
@@ -63,6 +64,7 @@ import ManageBuyRequestsPage from "./admin/pages/ManageBuyRequestsPage";
 import ManageAuctionRequestsPage from "./admin/pages/ManageAuctionRequestsPage";
 import ManageAgentSubmissionsPage from "./admin/pages/ManageAgentSubmissionsPage";
 import ManageEnquiriesPage from "./admin/pages/ManageEnquiriesPage";
+import ManagePDIRequestsPage from "./admin/pages/ManagePDIRequestsPage";
 import StaffOnly from "./auth/StaffOnly";
 
 import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-dom";
@@ -99,6 +101,7 @@ function PublicSite() {
           <Route path="/buy-car" element={<BuyCar />} />
           <Route path="/sell-car" element={<SellCar />} />
           <Route path="/rc-check" element={<RCCheck />} />
+          <Route path="/pdi-service" element={<PDIService />} />
           <Route path="/challan-check" element={<ChallanCheck />} />
           <Route path="/car-loan-emi" element={<CarLoanEmi />} />
           <Route path="/about" element={<About />} />
@@ -302,6 +305,14 @@ function App() {
               element={
                 <StaffOnly allow={["admin", "manager", "team_lead"]}>
                   <ManageEnquiriesPage />
+                </StaffOnly>
+              }
+            />
+            <Route
+              path="pdi-requests"
+              element={
+                <StaffOnly allow={["admin", "manager", "team_lead"]}>
+                  <ManagePDIRequestsPage />
                 </StaffOnly>
               }
             />
