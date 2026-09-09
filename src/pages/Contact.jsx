@@ -72,7 +72,8 @@ const Contact = () => {
                     {
                         icon: <Phone />,
                         title: "Call Us",
-                        value: "+91 xxxxxxxxxx",
+                        value: "+91 78360 08277",
+                        link: "tel:+917836008277",
                     },
                     {
                         icon: <Mail />,
