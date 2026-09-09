@@ -1,0 +1,9 @@
+User-agent: *
+Allow: /
+Disallow: /admin
+Disallow: /admin-login
+Disallow: /dealer
+Disallow: /agent
+Disallow: /buyer
+
+Sitemap: https://wellcardeals.com/sitemap.xml
