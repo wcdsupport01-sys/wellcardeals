@@ -135,7 +135,7 @@ function RelistModal({ car, onClose, onConfirm, saving }) {
 }
 
 // ─── Price Edit Modal ──────────────────────────────────────────────────────
-function PriceModal({ car, onClose, onSave, saving }) {
+function PriceModal({ car, onClose, onSave, saving, bidCount }) {
   const [buyerPrice, setBuyerPrice] = useState(car.base_price_buyer || "");
   const [dealerPrice, setDealerPrice] = useState(car.base_price_dealer || "");
   const [buyNowPrice, setBuyNowPrice] = useState(car.buy_now_price || "");
@@ -173,7 +173,7 @@ function PriceModal({ car, onClose, onSave, saving }) {
           ))}
           <div className="grid grid-cols-2 gap-3 pt-2">
             <button onClick={onClose} className="py-2.5 rounded-xl border border-white/10 text-zinc-300 text-sm font-medium hover:bg-white/5 transition">Cancel</button>
-            <button disabled={saving} onClick={() => onSave({ base_price_buyer: buyerPrice || null, base_price_dealer: dealerPrice || null, buy_now_price: buyNowPrice || null, starting_bid: startingBid || null, reserve_price: reservePrice || null })}
+            <button disabled={saving} onClick={() => onSave({   base_price_buyer: buyerPrice || null, base_price_dealer: dealerPrice || null,   buy_now_price: buyNowPrice || null, starting_bid: startingBid || null, reserve_price: reservePrice || null,   ...(!bidCount ? { current_bid_buyer: buyerPrice || null, current_bid_dealer: dealerPrice || null } : {}), })}
               className="py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-black text-sm font-semibold transition disabled:opacity-60 flex items-center justify-center gap-2">
               {saving ? <Loader2 size={14} className="animate-spin" /> : <IndianRupee size={14} />} Save Prices
             </button>
@@ -419,7 +419,7 @@ export default function InventoryPage() {
   return (
     <div>
       {relistCar && <RelistModal car={relistCar} onClose={() => setRelistCar(null)} onConfirm={confirmRelist} saving={savingId === relistCar.id} />}
-      {priceCar && <PriceModal car={priceCar} onClose={() => setPriceCar(null)} onSave={savePrices} saving={savingId === priceCar.id} />}
+      {priceCar && <PriceModal car={priceCar} onClose={() => setPriceCar(null)} onSave={savePrices} saving={savingId === priceCar.id} bidCount={bidCounts[priceCar.id] || 0} />}
 
       <div className="flex items-start justify-between gap-4 flex-wrap mb-1">
         <h1 className="text-2xl font-semibold text-white">Inventory</h1>
