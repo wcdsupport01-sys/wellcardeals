@@ -135,12 +135,35 @@ function RelistModal({ car, onClose, onConfirm, saving }) {
 }
 
 // ─── Price Edit Modal ──────────────────────────────────────────────────────
+// `bidCount` tells this modal whether the car already has live bids. When
+// it has none yet, editing the base price should also move the "current
+// bid" (current_bid_buyer/dealer) forward — that's the field
+// RealCarDetail.jsx actually displays as the live price. Once real bids
+// exist, we leave current_bid_* alone so we never clobber a genuine bid.
 function PriceModal({ car, onClose, onSave, saving, bidCount }) {
   const [buyerPrice, setBuyerPrice] = useState(car.base_price_buyer || "");
   const [dealerPrice, setDealerPrice] = useState(car.base_price_dealer || "");
   const [buyNowPrice, setBuyNowPrice] = useState(car.buy_now_price || "");
   const [startingBid, setStartingBid] = useState(car.starting_bid || "");
   const [reservePrice, setReservePrice] = useState(car.reserve_price || "");
+
+  function handleSave() {
+    const payload = {
+      base_price_buyer: buyerPrice || null,
+      base_price_dealer: dealerPrice || null,
+      buy_now_price: buyNowPrice || null,
+      starting_bid: startingBid || null,
+      reserve_price: reservePrice || null,
+    };
+    // No bids yet on this car → also move the live "current bid" fields so
+    // the price actually shows on the site instead of staying stuck at the
+    // old value. If there ARE bids already, don't touch current_bid_*.
+    if (!bidCount) {
+      payload.current_bid_buyer = buyerPrice || null;
+      payload.current_bid_dealer = dealerPrice || null;
+    }
+    onSave(payload);
+  }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
@@ -155,6 +178,16 @@ function PriceModal({ car, onClose, onSave, saving, bidCount }) {
         </div>
         <div className="px-6 py-5 space-y-3">
           <p className="text-zinc-400 text-xs mb-2">{car.vehicle_title}</p>
+          {!bidCount && (
+            <p className="text-[11px] text-amber-300/80 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2">
+              No bids yet — the buyer/dealer live price will update immediately along with these base prices.
+            </p>
+          )}
+          {bidCount > 0 && (
+            <p className="text-[11px] text-zinc-400 bg-white/5 border border-white/10 rounded-lg px-3 py-2">
+              This car already has {bidCount} bid{bidCount !== 1 ? "s" : ""} — the current live bid won't be changed, only the base/reserve prices below.
+            </p>
+          )}
           {[
             ["Buyer Base Price", buyerPrice, setBuyerPrice],
             ["Dealer Base Price", dealerPrice, setDealerPrice],
@@ -173,7 +206,7 @@ function PriceModal({ car, onClose, onSave, saving, bidCount }) {
           ))}
           <div className="grid grid-cols-2 gap-3 pt-2">
             <button onClick={onClose} className="py-2.5 rounded-xl border border-white/10 text-zinc-300 text-sm font-medium hover:bg-white/5 transition">Cancel</button>
-            <button disabled={saving} onClick={() => onSave({   base_price_buyer: buyerPrice || null, base_price_dealer: dealerPrice || null,   buy_now_price: buyNowPrice || null, starting_bid: startingBid || null, reserve_price: reservePrice || null,   ...(!bidCount ? { current_bid_buyer: buyerPrice || null, current_bid_dealer: dealerPrice || null } : {}), })}
+            <button disabled={saving} onClick={handleSave}
               className="py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-black text-sm font-semibold transition disabled:opacity-60 flex items-center justify-center gap-2">
               {saving ? <Loader2 size={14} className="animate-spin" /> : <IndianRupee size={14} />} Save Prices
             </button>
@@ -419,7 +452,15 @@ export default function InventoryPage() {
   return (
     <div>
       {relistCar && <RelistModal car={relistCar} onClose={() => setRelistCar(null)} onConfirm={confirmRelist} saving={savingId === relistCar.id} />}
-      {priceCar && <PriceModal car={priceCar} onClose={() => setPriceCar(null)} onSave={savePrices} saving={savingId === priceCar.id} bidCount={bidCounts[priceCar.id] || 0} />}
+      {priceCar && (
+        <PriceModal
+          car={priceCar}
+          onClose={() => setPriceCar(null)}
+          onSave={savePrices}
+          saving={savingId === priceCar.id}
+          bidCount={bidCounts[priceCar.id] || 0}
+        />
+      )}
 
       <div className="flex items-start justify-between gap-4 flex-wrap mb-1">
         <h1 className="text-2xl font-semibold text-white">Inventory</h1>
