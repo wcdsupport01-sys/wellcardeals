@@ -170,6 +170,12 @@ const RealCarDetail = () => {
   const [buySubmitting, setBuySubmitting] = useState(false);
   const [buyError, setBuyError] = useState("");
   const [buySent, setBuySent] = useState(false);
+  const [c2cOpen, setC2cOpen] = useState(false);
+  const [c2cName, setC2cName] = useState("");
+  const [c2cPhone, setC2cPhone] = useState("");
+  const [c2cSubmitting, setC2cSubmitting] = useState(false);
+  const [c2cError, setC2cError] = useState("");
+  const [c2cSent, setC2cSent] = useState(false);
 
   // EMI calculator state — used in the "Buy Now Listing" panel below.
   const [downPayment, setDownPayment] = useState("");
@@ -258,12 +264,7 @@ const RealCarDetail = () => {
 
   const currentBid = isApprovedDealer ? car.current_bid_dealer : car.current_bid_buyer;
   const basePrice = isApprovedDealer ? car.base_price_dealer : car.base_price_buyer;
-  // "Buy Now Only" listings never have real bidding, so current_bid_* just
-  // holds a stale value copied in at creation time — always trust the
-  // buy-now/base price for these instead of a leftover bid figure.
-  const displayPrice = car.listing_type === "buy_now_only"
-    ? (car.buy_now_price || basePrice)
-    : (currentBid || basePrice);
+  const displayPrice = currentBid || basePrice;
   const minIncrement = car.minimum_increment || 5000;
   const nextMinBid = (currentBid || basePrice || 0) + minIncrement;
 
@@ -347,6 +348,22 @@ const RealCarDetail = () => {
     setBuySubmitting(false);
     if (error) setBuyError(error.message);
     else setBuySent(true);
+  }
+
+  async function submitC2cRequest() {
+    setC2cError("");
+    const name = c2cName.trim() || profile?.full_name || profile?.email || "";
+    const phone = c2cPhone.trim() || profile?.phone || "";
+    if (!name) { setC2cError("Please enter your name."); return; }
+    if (!phone) { setC2cError("Please enter your phone number."); return; }
+    setC2cSubmitting(true);
+    const { error } = await supabase.from("c2c_deal_requests").insert({
+      car_id: car.id, buyer_id: user?.id || null,
+      buyer_name: name, buyer_phone: phone,
+    });
+    setC2cSubmitting(false);
+    if (error) setC2cError("Something went wrong. Please try again.");
+    else setC2cSent(true);
   }
 
   // Toggle this car in/out of the logged-in buyer's wishlist (`wishlist`
@@ -649,6 +666,43 @@ const RealCarDetail = () => {
               ) : null}
             </div>
           )}
+
+          {/* C2C Deal option — direct customer-to-customer deal, flat 3%
+              commission charged to both sides, our representative mediates
+              the whole deal. Shown on every car's detail page. */}
+          <div className="mt-4 border border-amber-200 bg-amber-50/50 rounded-xl p-4">
+            <div className="flex items-center gap-2 mb-1">
+              <UserCheck size={16} className="text-amber-600" />
+              <p className="text-sm font-semibold text-navy-900">C2C Deal</p>
+              <span className="text-[10px] font-semibold text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full">3% commission</span>
+            </div>
+            <p className="text-xs text-gray-600 mb-3">
+              Deal directly with the seller — no bidding. A flat 3% commission applies to both buyer and seller, and our representative stays with you through the entire deal.
+            </p>
+
+            {c2cSent ? (
+              <div className="flex items-start gap-2 text-emerald-600 border border-emerald-100 bg-emerald-50 rounded-xl p-3">
+                <CheckCircle2 size={16} className="mt-0.5 shrink-0" />
+                <div>
+                  <p className="text-sm font-semibold">Request sent!</p>
+                  <p className="text-xs text-gray-500 mt-0.5">Our representative will contact you shortly to start the C2C deal.</p>
+                </div>
+              </div>
+            ) : c2cOpen ? (
+              <div className="space-y-2">
+                <input type="text" value={c2cName} onChange={(e) => setC2cName(e.target.value)} placeholder="Your name" className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm" />
+                <input type="tel" value={c2cPhone} onChange={(e) => setC2cPhone(e.target.value)} placeholder="Your phone number" className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm" />
+                {c2cError && <p className="text-xs text-red-600">{c2cError}</p>}
+                <button disabled={c2cSubmitting} onClick={submitC2cRequest} className="w-full flex items-center justify-center gap-2 bg-amber-600 hover:bg-amber-700 disabled:opacity-60 text-white font-semibold py-2.5 rounded-xl transition text-sm">
+                  {c2cSubmitting ? "Sending…" : "Confirm — Start C2C Deal"}
+                </button>
+              </div>
+            ) : (
+              <button onClick={() => { setC2cOpen(true); if (!c2cName) setC2cName(profile?.full_name || ""); if (!c2cPhone) setC2cPhone(profile?.phone || ""); }} className="w-full flex items-center justify-center gap-2 border border-amber-300 text-amber-700 hover:bg-amber-100 font-semibold py-2.5 rounded-xl transition text-sm">
+                Start C2C Deal
+              </button>
+            )}
+          </div>
 
           {user && myBids.length > 0 && (
             <div className="mt-4 border border-gray-200 rounded-xl p-4">
