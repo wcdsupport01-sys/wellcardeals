@@ -71,7 +71,7 @@ export default function BuyerDashboard() {
           .order("created_at", { ascending: false }),
         supabase
           .from("wishlist")
-          .select("id, created_at, cars(id, vehicle_title, thumbnail_url, images, mileage_km, base_price_buyer, current_bid_buyer, fuel_types(name), transmissions(name))")
+          .select("id, created_at, cars(id, vehicle_title, thumbnail_url, images, mileage_km, base_price_buyer, current_bid_buyer, buy_now_price, listing_type, fuel_types(name), transmissions(name))")
           .eq("buyer_id", user.id)
           .order("created_at", { ascending: false }),
       ]);
@@ -239,7 +239,7 @@ export default function BuyerDashboard() {
               {wishlist.slice(0, 3).map(({ id, cars: c }) => {
                 if (!c) return null;
                 const cover = c.thumbnail_url || (Array.isArray(c.images) && c.images[0]);
-                const price = c.current_bid_buyer ?? c.base_price_buyer;
+                const price = c.listing_type === "buy_now_only" ? (c.buy_now_price ?? c.base_price_buyer) : (c.current_bid_buyer ?? c.base_price_buyer);
                 return (
                   <Link
                     key={id}
