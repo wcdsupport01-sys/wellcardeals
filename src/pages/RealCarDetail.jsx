@@ -258,7 +258,12 @@ const RealCarDetail = () => {
 
   const currentBid = isApprovedDealer ? car.current_bid_dealer : car.current_bid_buyer;
   const basePrice = isApprovedDealer ? car.base_price_dealer : car.base_price_buyer;
-  const displayPrice = currentBid || basePrice;
+  // "Buy Now Only" listings never have real bidding, so current_bid_* just
+  // holds a stale value copied in at creation time — always trust the
+  // buy-now/base price for these instead of a leftover bid figure.
+  const displayPrice = car.listing_type === "buy_now_only"
+    ? (car.buy_now_price || basePrice)
+    : (currentBid || basePrice);
   const minIncrement = car.minimum_increment || 5000;
   const nextMinBid = (currentBid || basePrice || 0) + minIncrement;
 
