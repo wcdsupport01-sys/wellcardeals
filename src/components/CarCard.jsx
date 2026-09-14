@@ -47,7 +47,10 @@ export default function CarCard({ car, isApprovedDealer, onToggleWishlist, wishl
   const isAuction = car.listing_type !== "buy_now_only";
   const basePrice = isApprovedDealer ? car.base_price_dealer : car.base_price_buyer;
   const currentBid = isApprovedDealer ? car.current_bid_dealer : car.current_bid_buyer;
-  const displayPrice = currentBid || basePrice;
+  // "Buy Now Only" listings never have real bidding, so current_bid_* just
+  // holds a stale value copied in at creation time — always trust the
+  // buy-now/base price for these instead of a leftover bid figure.
+  const displayPrice = isAuction ? (currentBid || basePrice) : (car.buy_now_price || basePrice);
   const cover = car.thumbnail_url || (Array.isArray(car.images) && car.images[0]);
 
   return (
