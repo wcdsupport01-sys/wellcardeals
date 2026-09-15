@@ -64,6 +64,7 @@ import ManageBuyRequestsPage from "./admin/pages/ManageBuyRequestsPage";
 import ManageAuctionRequestsPage from "./admin/pages/ManageAuctionRequestsPage";
 import ManageAgentSubmissionsPage from "./admin/pages/ManageAgentSubmissionsPage";
 import ManageEnquiriesPage from "./admin/pages/ManageEnquiriesPage";
+import ManageC2CDealsPage from "./admin/pages/ManageC2CDealsPage";
 import ManagePDIRequestsPage from "./admin/pages/ManagePDIRequestsPage";
 import StaffOnly from "./auth/StaffOnly";
 
