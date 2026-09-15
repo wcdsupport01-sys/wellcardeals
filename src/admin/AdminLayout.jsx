@@ -20,6 +20,7 @@ const NAV = [
   { to: "/admin/auction-requests", label: "Sell Requests", icon: FileText, roles: ["admin", "manager", "team_lead"] },
   { to: "/admin/agent-submissions", label: "Agent Submissions", icon: UserCheck, roles: ["admin", "manager", "team_lead"] },
   { to: "/admin/enquiries", label: "Enquiries", icon: Mail, roles: ["admin", "manager", "team_lead"] },
+  { to: "/admin/c2c-deals", label: "C2C Deals", icon: UserCheck, roles: ["admin", "manager", "team_lead"] },
   { to: "/admin/pdi-requests", label: "PDI Requests", icon: ClipboardCheck, roles: ["admin", "manager", "team_lead"] },
   { to: "/admin/dealers", label: "Manage Dealers", icon: Users, roles: ["admin", "manager"] },
   { to: "/admin/dealer-applications", label: "Dealer Applications", icon: ClipboardList, roles: ["admin", "manager"] },
