@@ -309,6 +309,14 @@ function App() {
                 </StaffOnly>
               }
             />
+               <Route
+     path="c2c-deals"
+     element={
+       <StaffOnly allow={["admin", "manager", "team_lead"]}>
+         <ManageC2CDealsPage />
+       </StaffOnly>
+     }
+   />
             <Route
               path="pdi-requests"
               element={
