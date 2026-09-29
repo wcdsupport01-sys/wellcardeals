@@ -15,7 +15,10 @@ function requireSupabase() {
 // Segments the `cars` table by who's asking:
 //   - buyer / unauthenticated  -> access_type == "all" AND listing_type == "buy_now_only"
 //                                 (Live Auction wali gaadiyaan buyers ko nahi dikhti)
-//   - dealer (status approved) -> access_type in ("all", "dealer_only") — sab dikhta hai
+//   - dealer (status approved) -> access_type in ("all", "dealer_only") AND
+//                                 channel == "dealer" — sirf Dealer Auction
+//                                 wali cars, "Buyer Auction" (C2C) cars kabhi
+//                                 dealer ke Live Auctions page par nahi aatin.
 //   - dealer (not approved yet)-> buyer wala view (buy_now_only + access_type all)
 //   - admin                    -> everything, no filter
 // ---------------------------------------------------------------------------
@@ -36,8 +39,10 @@ export async function fetchAuctionCars(userRole, { dealerStatus, status = "live"
   if (userRole === "admin") {
     // Admin — sab kuch dikhta hai, koi filter nahi
   } else if (isApprovedDealer) {
-    // Approved dealer — dealer_only + all access_type, sab listing types
-    query = query.in("access_type", ["all", "dealer_only"]);
+    // Approved dealer — dealer_only + all access_type, lekin sirf
+    // "dealer" channel wali auctions. Buyer/C2C channel wali cars yahan
+    // kabhi nahi dikhni chahiye, chahe unka access_type kuch bhi ho.
+    query = query.in("access_type", ["all", "dealer_only"]).eq("channel", "dealer");
   } else {
     // Buyer, unauthenticated, ya unapproved dealer:
     // - sirf access_type = "all"
