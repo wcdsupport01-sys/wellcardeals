@@ -27,7 +27,7 @@ export default function BuyerLogin() {
   }
 
   return (
-    <AuthCard title="Buyer Login" subtitle="Sign in to bid on live auctions.">
+    <AuthCard title="Buyer Login" subtitle="Sign in to explore cars and manage your buyer account. Live auctions are for approved dealers only.">
       {error && (
         <div className="mb-4 flex items-center gap-2 rounded-xl bg-red-50 border border-red-200 text-red-600 text-sm px-4 py-2.5">
           <AlertCircle size={16} /> {error}
