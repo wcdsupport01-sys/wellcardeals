@@ -1,28 +1,22 @@
+
 import { supabase, isSupabaseConfigured } from "../lib/supabaseClient";
 
 function requireSupabase() {
   if (!isSupabaseConfigured) {
     throw new Error(
-      "Supabase isn't configured yet — add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to your .env (see SUPABASE_SETUP.md)."
+      "Supabase isn't configured yet — add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY."
     );
   }
   return supabase;
 }
 
-// ---------------------------------------------------------------------------
-// fetchAuctionCars(userRole, options)
-//
-// Segments the `cars` table by who's asking:
-//   - buyer / unauthenticated  -> access_type == "all" AND listing_type == "buy_now_only"
-//                                 (Live Auction wali gaadiyaan buyers ko nahi dikhti)
-//   - dealer (status approved) -> access_type in ("all", "dealer_only") AND
-//                                 channel == "dealer" — sirf Dealer Auction
-//                                 wali cars, "Buyer Auction" (C2C) cars kabhi
-//                                 dealer ke Live Auctions page par nahi aatin.
-//   - dealer (not approved yet)-> buyer wala view (buy_now_only + access_type all)
-//   - admin                    -> everything, no filter
-// ---------------------------------------------------------------------------
-export async function fetchAuctionCars(userRole, { dealerStatus, status = "live" } = {}) {
+// Live auction listings are publicly visible.
+// Dealer-only listings are visible only to approved dealers/admins.
+// Bidding permissions must be enforced separately in the backend.
+export async function fetchAuctionCars(
+  userRole,
+  { dealerStatus, status = "live" } = {}
+) {
   const db = requireSupabase();
 
   let query = db
@@ -34,25 +28,24 @@ export async function fetchAuctionCars(userRole, { dealerStatus, status = "live"
     query = query.eq("status", status);
   }
 
-  const isApprovedDealer = userRole === "dealer" && dealerStatus === "approved";
+  const isApprovedDealer =
+    userRole === "dealer" &&
+    dealerStatus === "approved";
 
-  if (userRole === "admin") {
-    // Admin — sab kuch dikhta hai, koi filter nahi
-  } else if (isApprovedDealer) {
-    // Approved dealer — dealer_only + all access_type, lekin sirf
-    // "dealer" channel wali auctions. Buyer/C2C channel wali cars yahan
-    // kabhi nahi dikhni chahiye, chahe unka access_type kuch bhi ho.
-    query = query.in("access_type", ["all", "dealer_only"]).eq("channel", "dealer");
-  } else {
-    // Buyer, unauthenticated, ya unapproved dealer:
-    // - sirf access_type = "all"
-    // - sirf buy_now_only listings (auction wali nahi)
-    query = query
-      .eq("access_type", "all")
-      .eq("listing_type", "buy_now_only");
+  const isAdmin = userRole === "admin";
+
+  if (!isApprovedDealer && !isAdmin) {
+    // Public users can see listings marked for everyone.
+    query = query.eq("access_type", "all");
   }
 
+  // Do not restrict public visitors to buy_now_only.
+  // LiveAuctions.jsx filters buy_now_only from auction results.
   const { data, error } = await query;
-  if (error) throw error;
-  return data;
+
+  if (error) {
+    throw error;
+  }
+
+  return data || [];
 }
