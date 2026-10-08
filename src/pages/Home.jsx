@@ -131,7 +131,7 @@ const Home = () => {
             </h1>
 
             <p className="mt-2 text-slate-600 text-xs sm:text-sm md:text-base leading-snug max-w-lg">
-              Discover verified used cars, place your best bid, and drive home your dream car.
+              Explore used cars and find your next car. Live auction bidding is exclusively for approved dealers.
             </p>
 
             <div className="mt-4 flex flex-wrap gap-3">
