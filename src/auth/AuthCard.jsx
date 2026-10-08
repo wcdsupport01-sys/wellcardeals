@@ -50,7 +50,7 @@ export default function AuthCard({ title, subtitle, children, wide = false }) {
             Drive.
           </h1>
           <p className="text-[#4B5C7E] text-base xl:text-lg mt-3 max-w-md">
-            Discover verified used cars, place your best bid, and drive home your dream car.
+            Explore used cars and find your next car. Live auction bidding is exclusively for approved dealers.
           </p>
 
           {/* Spacer reserved for the absolutely-positioned car below */}
