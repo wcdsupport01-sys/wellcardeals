@@ -97,7 +97,7 @@ export default function BuyCar() {
       </div>
 
       {/* Grid — full width now; filters live in the drawer/panel above */}
-      <AuctionGrid filters={{ search, maxPrice }} onResultsCount={setResultsCount} />
+      <AuctionGrid   mode="buy_now"   filters={{ search, maxPrice }}   onResultsCount={setResultsCount} />
 
       <div className="mt-10 sm:mt-14 flex items-center gap-3 border border-gray-200 rounded-2xl px-4 sm:px-6 py-4 sm:py-5 bg-[#DCEAFB]">
         <ShoppingCart size={20} className="text-[#1E6FD9] shrink-0" />
