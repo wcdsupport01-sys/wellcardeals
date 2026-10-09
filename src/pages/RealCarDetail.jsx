@@ -696,6 +696,10 @@ async function confirmBid() {
             </div>
           )}
 
+          {car.channel !== "dealer" &&
+ car.access_type === "all" &&
+ car.listing_type === "buy_now_only" &&
+ car.c2c_enabled === true && (
           {/* C2C Deal option — direct customer-to-customer deal, flat 3%
               commission charged to both sides, our representative mediates
               the whole deal. Shown on every car's detail page. */}
@@ -705,6 +709,7 @@ async function confirmBid() {
               <p className="text-sm font-semibold text-navy-900">C2C Deal</p>
               <span className="text-[10px] font-semibold text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full">3% commission</span>
             </div>
+   )}
             <p className="text-xs text-gray-600 mb-3">
               Deal directly with the seller — no bidding. A flat 3% commission applies to both buyer and seller, and our representative stays with you through the entire deal.
             </p>
