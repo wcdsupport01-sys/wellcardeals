@@ -308,47 +308,76 @@ const RealCarDetail = () => {
   }
 
   // Actually place the bid after confirmation
-  async function confirmBid() {
-    const amount = pendingBidAmount;
-    setPlacingBid(true);
-    const field = isApprovedDealer ? "current_bid_dealer" : "current_bid_buyer";
-    const bidderRole = isApprovedDealer ? "dealer" : "buyer";
-    const idField = isApprovedDealer ? "highest_bidder_id_dealer" : "highest_bidder_id_buyer";
-    const nameField = isApprovedDealer ? "highest_bidder_name_dealer" : "highest_bidder_name_buyer";
-    const bidderName = profile?.full_name || profile?.email || "A dealer";
-    const { error } = await supabase.from("cars").update({
-      [field]: amount, [idField]: user?.id || null, [nameField]: bidderName, highest_bidder_name: bidderName,
-    }).eq("id", car.id);
-    setPlacingBid(false);
-    if (error) {
-      setBidError(error.message);
-      setBidModalOpen(false);
-    } else {
-      setCar((prev) => ({ ...prev, [field]: amount, [idField]: user?.id || null, [nameField]: bidderName }));
-      setCustomAmount("");
-      setBidModalOpen(false);
-      setPendingBidAmount(null);
-      if (user) {
-        await supabase.from("car_bids").insert({ car_id: car.id, bidder_id: user.id, bidder_name: bidderName, bidder_role: bidderRole, amount });
-        loadMyBids();
-      }
-    }
+ 
+async function confirmBid() {
+  if (placingBid) return;
+
+  setBidError("");
+
+  if (!user || !isApprovedDealer) {
+    setBidModalOpen(false);
+    setBidError("Only approved dealers can place auction bids.");
+    return;
   }
 
-  async function submitBuyRequest() {
-    setBuyError("");
-    if (!user) { setBuyError("Please log in as a buyer to request this car."); return; }
-    setBuySubmitting(true);
-    const buyerName = profile?.full_name || profile?.email || "A buyer";
-    const { error } = await supabase.from("car_purchase_requests").insert({
-      car_id: car.id, buyer_id: user.id, buyer_name: buyerName,
-      buyer_phone: buyPhone || profile?.phone || null,
-      offer_price: displayPrice, message: buyMessage || null,
-    });
-    setBuySubmitting(false);
-    if (error) setBuyError(error.message);
-    else setBuySent(true);
+  if (car.listing_type === "buy_now_only") {
+    setBidModalOpen(false);
+    setBidError("Bidding is not available for this listing.");
+    return;
   }
+
+  if (
+    car.status !== "live" ||
+    !car.auction_end ||
+    new Date(car.auction_end).getTime() <= Date.now()
+  ) {
+    setBidModalOpen(false);
+    setBidError("This auction is not currently active.");
+    return;
+  }
+
+  const amount = Number(pendingBidAmount);
+
+  if (!Number.isSafeInteger(amount) || amount <= 0) {
+    setBidError("Please enter a valid bid amount.");
+    return;
+  }
+
+  setPlacingBid(true);
+
+  try {
+    const { data, error } = await supabase.rpc(
+      "place_dealer_bid",
+      {
+        p_car_id: car.id,
+        p_amount: amount,
+      }
+    );
+
+    if (error) throw error;
+
+    if (data) {
+      setCar((previous) => ({
+        ...previous,
+        ...data,
+      }));
+    }
+
+    setCustomAmount("");
+    setBidModalOpen(false);
+    setPendingBidAmount(null);
+
+    await Promise.all([load(), loadMyBids()]);
+  } catch (err) {
+    setBidModalOpen(false);
+    setBidError(
+      err?.message || "Unable to place bid. Please try again."
+    );
+  } finally {
+    setPlacingBid(false);
+  }
+}
+
 
   async function submitC2cRequest() {
     setC2cError("");
