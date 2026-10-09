@@ -1,14 +1,20 @@
+
 import { useEffect, useMemo, useState } from "react";
 import {
-  Gavel, Tag, EyeOff, Eye, Ban, RotateCcw, Loader2, AlertCircle, Search,
-  ClipboardCheck, ChevronDown, ChevronUp, UserCheck2, RefreshCw, X,
-  ImageOff, Clock, TrendingUp, Download, SortAsc, SortDesc, CheckSquare,
-  Square, IndianRupee, Users, Shield,
+  Gavel, Tag, EyeOff, Eye, Ban, Loader2, AlertCircle,
+  Search, ClipboardCheck, ChevronDown, ChevronUp,
+  UserCheck2, RefreshCw, X, ImageOff, Clock,
+  TrendingUp, Download, SortAsc, SortDesc,
+  CheckSquare, Square, IndianRupee, Users, Shield,
 } from "lucide-react";
 import { useAuth } from "../../auth/AuthContext";
 import { supabase } from "../../lib/supabaseClient";
 import { fetchCars, updateCar } from "../lib/carsApi";
-import { INSPECTION_CATEGORIES, INSPECTION_STATUS_OPTIONS, EMPTY_INSPECTION } from "../lib/lookups";
+import {
+  INSPECTION_CATEGORIES,
+  INSPECTION_STATUS_OPTIONS,
+  EMPTY_INSPECTION,
+} from "../lib/lookups";
 
 const INSPECTION_STATUS_DOT = {
   good: "bg-emerald-500",
@@ -25,107 +31,197 @@ const STATUS_STYLES = {
   delisted: "bg-red-500/15 text-red-400",
 };
 
+function formatINR(value) {
+  if (value == null) return "—";
+  return "₹" + Math.round(Number(value)).toLocaleString("en-IN");
+}
+
 function toLocalInputValue(iso) {
   if (!iso) return "";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "";
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "";
   const pad = (n) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
 function overallInspectionStatus(car) {
-  const statuses = Object.values(car.inspection || {}).map((v) => v?.status).filter(Boolean);
-  if (statuses.length === 0) return null;
+  const statuses = Object.values(car.inspection || {})
+    .map((value) => value?.status)
+    .filter(Boolean);
+
+  if (!statuses.length) return null;
   if (statuses.includes("poor")) return "poor";
   if (statuses.includes("fair")) return "fair";
   return "good";
 }
 
-function formatINR(v) {
-  if (v == null) return "—";
-  return "₹" + Math.round(Number(v)).toLocaleString("en-IN");
+// C2C is available ONLY for public Buy Now listings.
+// Dealer-channel cars are never eligible.
+function isC2CEligible(car) {
+  return (
+    car?.channel !== "dealer" &&
+    car?.access_type === "all" &&
+    car?.listing_type === "buy_now_only"
+  );
 }
 
-// Auction timer warning — red if < 24h left
 function AuctionTimer({ endTime }) {
   const [now, setNow] = useState(Date.now());
+
   useEffect(() => {
-    const t = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(t);
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
   }, []);
+
   if (!endTime) return null;
+
   const diff = new Date(endTime).getTime() - now;
-  if (diff <= 0) return <span className="text-[10px] text-zinc-500">Ended</span>;
-  const h = Math.floor(diff / 3600000);
-  const m = Math.floor((diff % 3600000) / 60000);
-  const s = Math.floor((diff % 60000) / 1000);
-  const urgent = h < 24;
+  if (diff <= 0) {
+    return <span className="text-[10px] text-zinc-500">Ended</span>;
+  }
+
+  const hours = Math.floor(diff / 3600000);
+  const minutes = Math.floor((diff % 3600000) / 60000);
+  const seconds = Math.floor((diff % 60000) / 1000);
+  const urgent = hours < 24;
+
   return (
-    <span className={`flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full ${urgent ? "bg-red-500/15 text-red-400" : "bg-zinc-500/10 text-zinc-400"}`}>
+    <span className={`flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full ${
+      urgent
+        ? "bg-red-500/15 text-red-400"
+        : "bg-zinc-500/10 text-zinc-400"
+    }`}>
       <Clock size={10} />
-      {h > 0 ? `${h}h ` : ""}{String(m).padStart(2, "0")}m {String(s).padStart(2, "0")}s
+      {hours > 0 ? `${hours}h ` : ""}
+      {String(minutes).padStart(2, "0")}m{" "}
+      {String(seconds).padStart(2, "0")}s
       {urgent && " ⚠️"}
     </span>
   );
 }
 
-// ─── Re-list Modal ─────────────────────────────────────────────────────────
 function RelistModal({ car, onClose, onConfirm, saving }) {
-  const [listingType, setListingType] = useState(car.listing_type || "auction");
+  const [listingType, setListingType] = useState(
+    car.listing_type || "auction"
+  );
   const [auctionEnd, setAuctionEnd] = useState("");
-  const [accessType, setAccessType] = useState(car.access_type || "all");
+  const [accessType, setAccessType] = useState(
+    car.access_type || "all"
+  );
   const [error, setError] = useState("");
 
   function handleConfirm() {
-    if (listingType === "auction" && !auctionEnd) { setError("Please set an auction end date/time."); return; }
+    if (listingType === "auction" && !auctionEnd) {
+      setError("Please set an auction end date/time.");
+      return;
+    }
+
     setError("");
     onConfirm({ listingType, auctionEnd, accessType });
   }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
-      <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onClose} />
+      <div
+        className="absolute inset-0 bg-black/70 backdrop-blur-sm"
+        onClick={onClose}
+      />
+
       <div className="relative w-full max-w-md bg-zinc-900 border border-white/10 rounded-2xl shadow-2xl overflow-hidden">
         <div className="flex items-center justify-between px-6 py-4 border-b border-white/10">
           <div className="flex items-center gap-2">
             <RefreshCw size={16} className="text-emerald-400" />
             <p className="text-white font-bold text-sm">Re-list Car</p>
           </div>
-          <button onClick={onClose} className="text-zinc-400 hover:text-white transition"><X size={18} /></button>
+          <button onClick={onClose} className="text-zinc-400 hover:text-white">
+            <X size={18} />
+          </button>
         </div>
+
         <div className="px-6 py-5 space-y-4">
-          <p className="text-zinc-400 text-xs">Re-listing: <span className="text-white font-medium">{car.vehicle_title}</span></p>
+          <p className="text-zinc-400 text-xs">
+            Re-listing:{" "}
+            <span className="text-white font-medium">
+              {car.vehicle_title}
+            </span>
+          </p>
+
           <div>
-            <label className="text-xs text-zinc-400 mb-2 block">Listing Type</label>
+            <label className="text-xs text-zinc-400 mb-2 block">
+              Listing Type
+            </label>
+
             <div className="flex items-center gap-2 bg-white/5 rounded-lg p-1">
-              <button onClick={() => setListingType("auction")} className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-md text-xs font-medium transition ${listingType === "auction" ? "bg-blue-600 text-white" : "text-zinc-400 hover:text-white"}`}>
+              <button
+                onClick={() => setListingType("auction")}
+                className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-md text-xs font-medium ${
+                  listingType === "auction"
+                    ? "bg-blue-600 text-white"
+                    : "text-zinc-400 hover:text-white"
+                }`}
+              >
                 <Gavel size={13} /> Auction
               </button>
-              <button onClick={() => setListingType("buy_now_only")} className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-md text-xs font-medium transition ${listingType === "buy_now_only" ? "bg-blue-600 text-white" : "text-zinc-400 hover:text-white"}`}>
+
+              <button
+                onClick={() => setListingType("buy_now_only")}
+                className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-md text-xs font-medium ${
+                  listingType === "buy_now_only"
+                    ? "bg-blue-600 text-white"
+                    : "text-zinc-400 hover:text-white"
+                }`}
+              >
                 <Tag size={13} /> Buy Now
               </button>
             </div>
           </div>
+
           {listingType === "auction" && (
             <div>
-              <label className="text-xs text-zinc-400 mb-1.5 block">New Auction End Date & Time</label>
-              <input type="datetime-local" value={auctionEnd} onChange={(e) => setAuctionEnd(e.target.value)}
-                className="w-full px-3 py-2 rounded-xl bg-white/5 border border-white/10 text-sm text-white focus:outline-none focus:border-blue-500/50" />
+              <label className="text-xs text-zinc-400 mb-1.5 block">
+                New Auction End Date & Time
+              </label>
+              <input
+                type="datetime-local"
+                value={auctionEnd}
+                onChange={(e) => setAuctionEnd(e.target.value)}
+                className="w-full px-3 py-2 rounded-xl bg-white/5 border border-white/10 text-sm text-white"
+              />
             </div>
           )}
+
           <div>
-            <label className="text-xs text-zinc-400 mb-1.5 block">Who can see this listing?</label>
-            <select value={accessType} onChange={(e) => setAccessType(e.target.value)}
-              className="w-full px-3 py-2 rounded-xl bg-white/5 border border-white/10 text-sm text-white focus:outline-none focus:border-blue-500/50">
-              <option value="all" className="bg-zinc-900">Everyone (Buyers + Dealers)</option>
-              <option value="dealer_only" className="bg-zinc-900">Dealers Only</option>
+            <label className="text-xs text-zinc-400 mb-1.5 block">
+              Who can see this listing?
+            </label>
+            <select
+              value={accessType}
+              onChange={(e) => setAccessType(e.target.value)}
+              className="w-full px-3 py-2 rounded-xl bg-zinc-800 border border-white/10 text-sm text-white"
+            >
+              <option value="all">Everyone (Buyers + Dealers)</option>
+              <option value="dealer_only">Dealers Only</option>
             </select>
           </div>
-          {error && <p className="text-xs text-red-400 bg-red-500/10 px-3 py-2 rounded-lg flex items-center gap-1.5"><AlertCircle size={13} /> {error}</p>}
+
+          {error && (
+            <p className="text-xs text-red-400">{error}</p>
+          )}
+
           <div className="grid grid-cols-2 gap-3 pt-1">
-            <button onClick={onClose} disabled={saving} className="py-2.5 rounded-xl border border-white/10 text-zinc-300 text-sm font-medium hover:bg-white/5 transition disabled:opacity-50">Cancel</button>
-            <button onClick={handleConfirm} disabled={saving} className="py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-semibold transition disabled:opacity-60 flex items-center justify-center gap-2">
-              {saving ? <><Loader2 size={14} className="animate-spin" /> Saving…</> : <><RefreshCw size={14} /> Re-list Now</>}
+            <button
+              onClick={onClose}
+              disabled={saving}
+              className="py-2.5 rounded-xl border border-white/10 text-zinc-300 text-sm"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleConfirm}
+              disabled={saving}
+              className="py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-semibold disabled:opacity-60"
+            >
+              {saving ? "Saving…" : "Re-list Now"}
             </button>
           </div>
         </div>
@@ -134,18 +230,28 @@ function RelistModal({ car, onClose, onConfirm, saving }) {
   );
 }
 
-// ─── Price Edit Modal ──────────────────────────────────────────────────────
-// `bidCount` tells this modal whether the car already has live bids. When
-// it has none yet, editing the base price should also move the "current
-// bid" (current_bid_buyer/dealer) forward — that's the field
-// RealCarDetail.jsx actually displays as the live price. Once real bids
-// exist, we leave current_bid_* alone so we never clobber a genuine bid.
-function PriceModal({ car, onClose, onSave, saving, bidCount }) {
-  const [buyerPrice, setBuyerPrice] = useState(car.base_price_buyer || "");
-  const [dealerPrice, setDealerPrice] = useState(car.base_price_dealer || "");
-  const [buyNowPrice, setBuyNowPrice] = useState(car.buy_now_price || "");
-  const [startingBid, setStartingBid] = useState(car.starting_bid || "");
-  const [reservePrice, setReservePrice] = useState(car.reserve_price || "");
+function PriceModal({
+  car,
+  onClose,
+  onSave,
+  saving,
+  bidCount,
+}) {
+  const [buyerPrice, setBuyerPrice] = useState(
+    car.base_price_buyer || ""
+  );
+  const [dealerPrice, setDealerPrice] = useState(
+    car.base_price_dealer || ""
+  );
+  const [buyNowPrice, setBuyNowPrice] = useState(
+    car.buy_now_price || ""
+  );
+  const [startingBid, setStartingBid] = useState(
+    car.starting_bid || ""
+  );
+  const [reservePrice, setReservePrice] = useState(
+    car.reserve_price || ""
+  );
 
   function handleSave() {
     const payload = {
@@ -155,60 +261,88 @@ function PriceModal({ car, onClose, onSave, saving, bidCount }) {
       starting_bid: startingBid || null,
       reserve_price: reservePrice || null,
     };
-    // No bids yet on this car → also move the live "current bid" fields so
-    // the price actually shows on the site instead of staying stuck at the
-    // old value. If there ARE bids already, don't touch current_bid_*.
+
     if (!bidCount) {
       payload.current_bid_buyer = buyerPrice || null;
       payload.current_bid_dealer = dealerPrice || null;
     }
+
     onSave(payload);
   }
 
+  const fields = [
+    ["Buyer Base Price", buyerPrice, setBuyerPrice],
+    ["Dealer Base Price", dealerPrice, setDealerPrice],
+    ["Buy Now Price", buyNowPrice, setBuyNowPrice],
+    ["Starting Bid", startingBid, setStartingBid],
+    ["Reserve Price", reservePrice, setReservePrice],
+  ];
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
-      <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onClose} />
+      <div
+        className="absolute inset-0 bg-black/70 backdrop-blur-sm"
+        onClick={onClose}
+      />
+
       <div className="relative w-full max-w-md bg-zinc-900 border border-white/10 rounded-2xl shadow-2xl overflow-hidden">
         <div className="flex items-center justify-between px-6 py-4 border-b border-white/10">
           <div className="flex items-center gap-2">
             <IndianRupee size={16} className="text-amber-400" />
             <p className="text-white font-bold text-sm">Edit Prices</p>
           </div>
-          <button onClick={onClose} className="text-zinc-400 hover:text-white transition"><X size={18} /></button>
+          <button onClick={onClose} className="text-zinc-400">
+            <X size={18} />
+          </button>
         </div>
+
         <div className="px-6 py-5 space-y-3">
-          <p className="text-zinc-400 text-xs mb-2">{car.vehicle_title}</p>
-          {!bidCount && (
-            <p className="text-[11px] text-amber-300/80 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2">
-              No bids yet — the buyer/dealer live price will update immediately along with these base prices.
+          <p className="text-zinc-400 text-xs">
+            {car.vehicle_title}
+          </p>
+
+          {!bidCount ? (
+            <p className="text-[11px] text-amber-300 bg-amber-500/10 rounded-lg px-3 py-2">
+              No bids yet — live prices will update with base prices.
+            </p>
+          ) : (
+            <p className="text-[11px] text-zinc-400 bg-white/5 rounded-lg px-3 py-2">
+              This car has {bidCount} bids. Current live bids will not be changed.
             </p>
           )}
-          {bidCount > 0 && (
-            <p className="text-[11px] text-zinc-400 bg-white/5 border border-white/10 rounded-lg px-3 py-2">
-              This car already has {bidCount} bid{bidCount !== 1 ? "s" : ""} — the current live bid won't be changed, only the base/reserve prices below.
-            </p>
-          )}
-          {[
-            ["Buyer Base Price", buyerPrice, setBuyerPrice],
-            ["Dealer Base Price", dealerPrice, setDealerPrice],
-            ["Buy Now Price", buyNowPrice, setBuyNowPrice],
-            ["Starting Bid", startingBid, setStartingBid],
-            ["Reserve Price", reservePrice, setReservePrice],
-          ].map(([label, val, setter]) => (
+
+          {fields.map(([label, value, setter]) => (
             <div key={label}>
-              <label className="text-xs text-zinc-400 mb-1 block">{label}</label>
+              <label className="text-xs text-zinc-400 mb-1 block">
+                {label}
+              </label>
               <div className="relative">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500 text-xs">₹</span>
-                <input type="number" value={val} onChange={(e) => setter(e.target.value)}
-                  className="w-full pl-7 pr-3 py-2 rounded-xl bg-white/5 border border-white/10 text-sm text-white focus:outline-none focus:border-blue-500/50" />
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500 text-xs">
+                  ₹
+                </span>
+                <input
+                  type="number"
+                  value={value}
+                  onChange={(e) => setter(e.target.value)}
+                  className="w-full pl-7 pr-3 py-2 rounded-xl bg-white/5 border border-white/10 text-sm text-white"
+                />
               </div>
             </div>
           ))}
+
           <div className="grid grid-cols-2 gap-3 pt-2">
-            <button onClick={onClose} className="py-2.5 rounded-xl border border-white/10 text-zinc-300 text-sm font-medium hover:bg-white/5 transition">Cancel</button>
-            <button disabled={saving} onClick={handleSave}
-              className="py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-black text-sm font-semibold transition disabled:opacity-60 flex items-center justify-center gap-2">
-              {saving ? <Loader2 size={14} className="animate-spin" /> : <IndianRupee size={14} />} Save Prices
+            <button
+              onClick={onClose}
+              className="py-2.5 rounded-xl border border-white/10 text-zinc-300 text-sm"
+            >
+              Cancel
+            </button>
+            <button
+              disabled={saving}
+              onClick={handleSave}
+              className="py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-black text-sm font-semibold disabled:opacity-60"
+            >
+              {saving ? "Saving…" : "Save Prices"}
             </button>
           </div>
         </div>
@@ -223,7 +357,7 @@ export default function InventoryPage() {
 
   const [cars, setCars] = useState([]);
   const [staff, setStaff] = useState([]);
-  const [bidCounts, setBidCounts] = useState({}); // { car_id: count }
+  const [bidCounts, setBidCounts] = useState({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [savingId, setSavingId] = useState(null);
@@ -243,17 +377,28 @@ export default function InventoryPage() {
   async function load() {
     setLoading(true);
     setError(null);
+
     try {
-      const [carsData, { data: staffData }, { data: bidsData }] = await Promise.all([
+      const [
+        carsData,
+        { data: staffData },
+        { data: bidsData },
+      ] = await Promise.all([
         fetchCars(),
-        supabase.from("profiles").select("id, full_name, role").in("role", ["admin", "manager"]),
+        supabase
+          .from("profiles")
+          .select("id, full_name, role")
+          .in("role", ["admin", "manager"]),
         supabase.from("car_bids").select("car_id"),
       ]);
+
       setCars(carsData || []);
       setStaff(staffData || []);
-      // Count bids per car
+
       const counts = {};
-      (bidsData || []).forEach(({ car_id }) => { counts[car_id] = (counts[car_id] || 0) + 1; });
+      (bidsData || []).forEach(({ car_id }) => {
+        counts[car_id] = (counts[car_id] || 0) + 1;
+      });
       setBidCounts(counts);
     } catch (err) {
       setError(err.message || "Couldn't load inventory.");
@@ -262,196 +407,492 @@ export default function InventoryPage() {
     }
   }
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    load();
+  }, []);
 
   async function patchCar(id, payload, successText) {
-    if (!canEdit) return;
+    if (!canEdit) return false;
+
     setSavingId(id);
     setNotice(null);
+
     try {
       const updated = await updateCar(id, payload);
-      setCars((prev) => prev.map((c) => (c.id === id ? { ...c, ...updated } : c)));
-      setNotice({ id, text: successText, isError: false });
+
+      setCars((prev) =>
+        prev.map((car) =>
+          car.id === id ? { ...car, ...updated } : car
+        )
+      );
+
+      setNotice({
+        id,
+        text: successText,
+        isError: false,
+      });
+
+      return true;
     } catch (err) {
-      setNotice({ id, text: err.message || "Couldn't save that change.", isError: true });
+      setNotice({
+        id,
+        text: err.message || "Couldn't save that change.",
+        isError: true,
+      });
+      return false;
     } finally {
       setSavingId(null);
     }
   }
 
-  function setListingType(car, listing_type) {
-    if (listing_type === "buy_now_only" && !car.buy_now_price) {
-      setNotice({ id: car.id, text: "Set a Buy Now price for this car first.", isError: true });
+  // C2C ON/OFF for eligible Buy Now cars only.
+  async function toggleC2C(car) {
+    if (!canEdit) return;
+
+    if (!isC2CEligible(car)) {
+      setNotice({
+        id: car.id,
+        text: "C2C is allowed only on public Buy Now listings, not dealer auctions.",
+        isError: true,
+      });
       return;
     }
-    patchCar(car.id, { listing_type }, "Selling strategy updated.");
+
+    const nextValue = car.c2c_enabled !== true;
+
+    await patchCar(
+      car.id,
+      { c2c_enabled: nextValue },
+      nextValue
+        ? "C2C enabled for this car."
+        : "C2C disabled for this car."
+    );
+  }
+
+  function setListingType(car, listing_type) {
+    if (listing_type === "buy_now_only" && !car.buy_now_price) {
+      setNotice({
+        id: car.id,
+        text: "Set a Buy Now price for this car first.",
+        isError: true,
+      });
+      return;
+    }
+
+    const payload = { listing_type };
+
+    if (listing_type !== "buy_now_only") {
+      payload.c2c_enabled = false;
+    }
+
+    patchCar(car.id, payload, "Selling strategy updated.");
   }
 
   function setLiveUntil(car, value) {
-    patchCar(car.id, { auction_end: value ? new Date(value).toISOString() : null }, "Live duration updated.");
+    patchCar(
+      car.id,
+      {
+        auction_end: value
+          ? new Date(value).toISOString()
+          : null,
+      },
+      "Live duration updated."
+    );
   }
 
   function toggleVisibility(car) {
-    const next = car.visibility === "hidden" ? "visible" : "hidden";
-    patchCar(car.id, { visibility: next }, next === "hidden" ? "Hidden from marketplace." : "Visible again.");
+    const next =
+      car.visibility === "hidden" ? "visible" : "hidden";
+
+    patchCar(
+      car.id,
+      { visibility: next },
+      next === "hidden"
+        ? "Hidden from marketplace."
+        : "Visible again."
+    );
   }
 
   function setAccessType(car, accessType) {
-    patchCar(car.id, { access_type: accessType }, accessType === "dealer_only" ? "Now dealer-only." : "Now visible to everyone.");
+    const payload = { access_type: accessType };
+
+    if (accessType === "dealer_only") {
+      payload.c2c_enabled = false;
+    }
+
+    patchCar(
+      car.id,
+      payload,
+      accessType === "dealer_only"
+        ? "Now dealer-only. C2C disabled."
+        : "Now visible to everyone."
+    );
   }
 
   function delist(car) {
-    patchCar(car.id, { status: "delisted" }, "Permanently delisted.");
+    patchCar(
+      car.id,
+      { status: "delisted", c2c_enabled: false },
+      "Permanently delisted."
+    );
   }
 
-  async function confirmRelist({ listingType, auctionEnd, accessType }) {
+  async function confirmRelist({
+    listingType,
+    auctionEnd,
+    accessType,
+  }) {
+    if (!relistCar) return;
+
     const car = relistCar;
-    await patchCar(car.id, {
-      status: "live", listing_type: listingType, access_type: accessType,
-      visibility: "visible",
-      auction_end: listingType === "auction" && auctionEnd ? new Date(auctionEnd).toISOString() : null,
-    }, "Car re-listed successfully!");
-    setRelistCar(null);
+
+    const success = await patchCar(
+      car.id,
+      {
+        status: "live",
+        listing_type: listingType,
+        access_type: accessType,
+        visibility: "visible",
+        c2c_enabled:
+          listingType === "buy_now_only" &&
+          accessType === "all" &&
+          car.channel !== "dealer"
+            ? car.c2c_enabled === true
+            : false,
+        auction_end:
+          listingType === "auction" && auctionEnd
+            ? new Date(auctionEnd).toISOString()
+            : null,
+      },
+      "Car re-listed successfully!"
+    );
+
+    if (success) setRelistCar(null);
   }
 
   async function savePrices(payload) {
-    await patchCar(priceCar.id, payload, "Prices updated.");
-    setPriceCar(null);
+    if (!priceCar) return;
+
+    const success = await patchCar(
+      priceCar.id,
+      payload,
+      "Prices updated."
+    );
+
+    if (success) setPriceCar(null);
   }
 
   function staffName(id) {
     if (!id) return null;
-    return staff.find((s) => s.id === id)?.full_name || "Unknown";
+
+    return (
+      staff.find((person) => person.id === id)?.full_name ||
+      "Unknown"
+    );
   }
 
-  function claimCar(car) { patchCar(car.id, { handled_by: currentUser?.id }, "You're now handling this car."); }
+  function claimCar(car) {
+    patchCar(
+      car.id,
+      { handled_by: currentUser?.id },
+      "You're now handling this car."
+    );
+  }
+
   function reassignCar(car, newHandlerId) {
     if (!newHandlerId) return;
-    patchCar(car.id, { handled_by: newHandlerId }, `Reassigned to ${staffName(newHandlerId)}.`);
+
+    patchCar(
+      car.id,
+      { handled_by: newHandlerId },
+      `Reassigned to ${staffName(newHandlerId)}.`
+    );
   }
 
   function toggleInspectionPanel(car) {
-    if (expandedId === car.id) { setExpandedId(null); setDraft(null); return; }
+    if (expandedId === car.id) {
+      setExpandedId(null);
+      setDraft(null);
+      return;
+    }
+
     setExpandedId(car.id);
-    setDraft({ inspection: { ...EMPTY_INSPECTION, ...(car.inspection || {}) }, inspection_notes: car.inspection_notes || "" });
+    setDraft({
+      inspection: {
+        ...EMPTY_INSPECTION,
+        ...(car.inspection || {}),
+      },
+      inspection_notes: car.inspection_notes || "",
+    });
   }
 
   function setDraftCategory(key, field, value) {
-    setDraft((d) => ({
-      ...d,
+    setDraft((previous) => ({
+      ...previous,
       inspection: {
-        ...d.inspection,
-        [key]: field === "status" && !value ? null : { ...(d.inspection[key] || {}), [field]: value },
+        ...previous.inspection,
+        [key]:
+          field === "status" && !value
+            ? null
+            : {
+                ...(previous.inspection[key] || {}),
+                [field]: value,
+              },
       },
     }));
   }
 
   async function saveInspection(carId) {
-    await patchCar(carId, { inspection: draft.inspection, inspection_notes: draft.inspection_notes }, "Inspection report updated.");
-    setExpandedId(null);
-    setDraft(null);
+    if (!draft) return;
+
+    const success = await patchCar(
+      carId,
+      {
+        inspection: draft.inspection,
+        inspection_notes: draft.inspection_notes,
+      },
+      "Inspection report updated."
+    );
+
+    if (success) {
+      setExpandedId(null);
+      setDraft(null);
+    }
   }
 
-  // Sorting
   function toggleSort(field) {
-    if (sortField === field) setSortDir((d) => d === "asc" ? "desc" : "asc");
-    else { setSortField(field); setSortDir("desc"); }
+    if (sortField === field) {
+      setSortDir((direction) =>
+        direction === "asc" ? "desc" : "asc"
+      );
+    } else {
+      setSortField(field);
+      setSortDir("desc");
+    }
   }
 
-  // Bulk actions
   function toggleSelect(id) {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
+    setSelectedIds((previous) => {
+      const next = new Set(previous);
+
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+
       return next;
     });
   }
 
   function selectAll() {
-    if (selectedIds.size === filtered.length) setSelectedIds(new Set());
-    else setSelectedIds(new Set(filtered.map((c) => c.id)));
+    if (
+      filtered.length > 0 &&
+      filtered.every((car) => selectedIds.has(car.id))
+    ) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(filtered.map((car) => car.id)));
+    }
   }
 
   async function applyBulkAction() {
-    if (!bulkAction || selectedIds.size === 0) return;
+    if (!bulkAction || selectedIds.size === 0 || !canEdit) {
+      return;
+    }
+
     setBulkSaving(true);
+
     const ids = [...selectedIds];
+
     const payloadMap = {
       hide: { visibility: "hidden" },
       unhide: { visibility: "visible" },
-      delist: { status: "delisted" },
-      dealer_only: { access_type: "dealer_only" },
+      delist: {
+        status: "delisted",
+        c2c_enabled: false,
+      },
+      dealer_only: {
+        access_type: "dealer_only",
+        c2c_enabled: false,
+      },
       all_access: { access_type: "all" },
     };
+
     const payload = payloadMap[bulkAction];
-    if (!payload) { setBulkSaving(false); return; }
+
+    if (!payload) {
+      setBulkSaving(false);
+      return;
+    }
+
     try {
-      await Promise.all(ids.map((id) => updateCar(id, payload)));
-      setCars((prev) => prev.map((c) => ids.includes(c.id) ? { ...c, ...payload } : c));
+      await Promise.all(
+        ids.map((id) => updateCar(id, payload))
+      );
+
+      setCars((previous) =>
+        previous.map((car) =>
+          ids.includes(car.id)
+            ? { ...car, ...payload }
+            : car
+        )
+      );
+
       setSelectedIds(new Set());
       setBulkAction("");
     } catch (err) {
-      console.error(err);
+      setNotice({
+        id: ids[0],
+        text: err.message || "Bulk update failed.",
+        isError: true,
+      });
+      await load();
     } finally {
       setBulkSaving(false);
     }
   }
 
-  // CSV Export
   function exportCSV() {
-    const headers = ["Title", "Status", "Listing Type", "Access Type", "Buyer Price", "Dealer Price", "Buy Now", "Bids", "Auction End"];
-    const rows = filtered.map((c) => [
-      c.vehicle_title || "",
-      c.status || "",
-      c.listing_type || "",
-      c.access_type || "",
-      c.base_price_buyer || "",
-      c.base_price_dealer || "",
-      c.buy_now_price || "",
-      bidCounts[c.id] || 0,
-      c.auction_end || "",
+    const headers = [
+      "Title",
+      "Status",
+      "Listing Type",
+      "Access Type",
+      "C2C Enabled",
+      "Buyer Price",
+      "Dealer Price",
+      "Buy Now",
+      "Bids",
+      "Auction End",
+    ];
+
+    const rows = filtered.map((car) => [
+      car.vehicle_title || "",
+      car.status || "",
+      car.listing_type || "",
+      car.access_type || "",
+      car.c2c_enabled === true ? "Yes" : "No",
+      car.base_price_buyer || "",
+      car.base_price_dealer || "",
+      car.buy_now_price || "",
+      bidCounts[car.id] || 0,
+      car.auction_end || "",
     ]);
-    const csv = [headers, ...rows].map((r) => r.map((v) => `"${v}"`).join(",")).join("\n");
-    const blob = new Blob([csv], { type: "text/csv" });
+
+    const csv = [headers, ...rows]
+      .map((row) =>
+        row
+          .map((value) =>
+            `"${String(value ?? "").replace(/"/g, '""')}"`
+          )
+          .join(",")
+      )
+      .join("\n");
+
+    const blob = new Blob([csv], {
+      type: "text/csv;charset=utf-8;",
+    });
+
     const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url; a.download = "inventory.csv"; a.click();
+    const anchor = document.createElement("a");
+
+    anchor.href = url;
+    anchor.download = "inventory.csv";
+    anchor.click();
+
     URL.revokeObjectURL(url);
   }
 
   const filtered = useMemo(() => {
     let list = cars;
-    if (statusFilter !== "all") list = list.filter((c) => c.status === statusFilter);
-    if (search.trim()) {
-      const q = search.trim().toLowerCase();
-      list = list.filter((c) => (c.vehicle_title || "").toLowerCase().includes(q));
+
+    if (statusFilter !== "all") {
+      list = list.filter(
+        (car) => car.status === statusFilter
+      );
     }
-    list = [...list].sort((a, b) => {
-      let av = a[sortField], bv = b[sortField];
-      if (sortField === "bids") { av = bidCounts[a.id] || 0; bv = bidCounts[b.id] || 0; }
+
+    if (search.trim()) {
+      const query = search.trim().toLowerCase();
+
+      list = list.filter((car) =>
+        (car.vehicle_title || "")
+          .toLowerCase()
+          .includes(query)
+      );
+    }
+
+    return [...list].sort((a, b) => {
+      let av = a[sortField];
+      let bv = b[sortField];
+
+      if (sortField === "bids") {
+        av = bidCounts[a.id] || 0;
+        bv = bidCounts[b.id] || 0;
+      }
+
+      if (av == null && bv == null) return 0;
       if (av == null) return 1;
       if (bv == null) return -1;
-      if (typeof av === "string") return sortDir === "asc" ? av.localeCompare(bv) : bv.localeCompare(av);
+
+      if (typeof av === "string") {
+        return sortDir === "asc"
+          ? av.localeCompare(bv)
+          : bv.localeCompare(av);
+      }
+
       return sortDir === "asc" ? av - bv : bv - av;
     });
-    return list;
-  }, [cars, statusFilter, search, sortField, sortDir, bidCounts]);
+  }, [
+    cars,
+    statusFilter,
+    search,
+    sortField,
+    sortDir,
+    bidCounts,
+  ]);
 
-  function canRelist(car) { return ["closed", "delisted", "draft"].includes(car.status); }
+  function canRelist(car) {
+    return ["closed", "delisted", "draft"].includes(
+      car.status
+    );
+  }
 
   function SortBtn({ field, label }) {
     const active = sortField === field;
+
     return (
-      <button onClick={() => toggleSort(field)} className={`flex items-center gap-1 text-xs px-2 py-1 rounded-lg transition ${active ? "text-blue-400 bg-blue-500/10" : "text-zinc-500 hover:text-zinc-300"}`}>
+      <button
+        onClick={() => toggleSort(field)}
+        className={`flex items-center gap-1 text-xs px-2 py-1 rounded-lg transition ${
+          active
+            ? "text-blue-400 bg-blue-500/10"
+            : "text-zinc-500 hover:text-zinc-300"
+        }`}
+      >
         {label}
-        {active ? (sortDir === "asc" ? <SortAsc size={12} /> : <SortDesc size={12} />) : <SortAsc size={12} className="opacity-30" />}
+        {active ? (
+          sortDir === "asc" ? (
+            <SortAsc size={12} />
+          ) : (
+            <SortDesc size={12} />
+          )
+        ) : (
+          <SortAsc size={12} className="opacity-30" />
+        )}
       </button>
     );
   }
 
   return (
     <div>
-      {relistCar && <RelistModal car={relistCar} onClose={() => setRelistCar(null)} onConfirm={confirmRelist} saving={savingId === relistCar.id} />}
+      {relistCar && (
+        <RelistModal
+          car={relistCar}
+          onClose={() => setRelistCar(null)}
+          onConfirm={confirmRelist}
+          saving={savingId === relistCar.id}
+        />
+      )}
+
       {priceCar && (
         <PriceModal
           car={priceCar}
@@ -463,32 +904,59 @@ export default function InventoryPage() {
       )}
 
       <div className="flex items-start justify-between gap-4 flex-wrap mb-1">
-        <h1 className="text-2xl font-semibold text-white">Inventory</h1>
-        <button onClick={exportCSV} className="flex items-center gap-1.5 text-xs font-medium text-zinc-400 hover:text-white border border-white/10 px-3 py-1.5 rounded-lg transition">
-          <Download size={13} /> Export CSV
+        <h1 className="text-2xl font-semibold text-white">
+          Inventory
+        </h1>
+
+        <button
+          onClick={exportCSV}
+          className="flex items-center gap-1.5 text-xs font-medium text-zinc-400 hover:text-white border border-white/10 px-3 py-1.5 rounded-lg transition"
+        >
+          <Download size={13} />
+          Export CSV
         </button>
       </div>
+
       <p className="text-sm text-zinc-400 mb-6">
-        {canEdit ? "Set each car's selling strategy, live countdown, and marketplace visibility." : "Read-only view of inventory."}
+        {canEdit
+          ? "Manage car listings, prices, inspections, C2C deals and marketplace visibility."
+          : "Read-only view of inventory."}
       </p>
 
-      {/* Search + Filter + Sort */}
+      {/* Search and filters */}
       <div className="flex flex-col sm:flex-row gap-3 mb-3">
         <div className="relative flex-1 max-w-sm">
-          <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" />
-          <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search by title…"
-            className="w-full pl-9 pr-3 py-2 rounded-xl bg-white/5 border border-white/10 text-sm text-white placeholder:text-zinc-500 focus:outline-none focus:border-blue-500/50" />
+          <Search
+            size={15}
+            className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500"
+          />
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search by title…"
+            className="w-full pl-9 pr-3 py-2 rounded-xl bg-white/5 border border-white/10 text-sm text-white placeholder:text-zinc-500 focus:outline-none"
+          />
         </div>
-        <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}
-          className="px-3 py-2 rounded-xl bg-white/5 border border-white/10 text-sm text-white focus:outline-none focus:border-blue-500/50">
+
+        <select
+          value={statusFilter}
+          onChange={(e) => setStatusFilter(e.target.value)}
+          className="px-3 py-2 rounded-xl bg-zinc-900 border border-white/10 text-sm text-white"
+        >
           <option value="all">All statuses</option>
-          {Object.keys(STATUS_STYLES).map((s) => <option key={s} value={s} className="bg-zinc-900">{s}</option>)}
+          {Object.keys(STATUS_STYLES).map((status) => (
+            <option key={status} value={status}>
+              {status}
+            </option>
+          ))}
         </select>
       </div>
 
-      {/* Sort bar */}
+      {/* Sorting */}
       <div className="flex items-center gap-1 mb-4 flex-wrap">
-        <span className="text-xs text-zinc-600 mr-1">Sort:</span>
+        <span className="text-xs text-zinc-600 mr-1">
+          Sort:
+        </span>
         <SortBtn field="created_at" label="Date" />
         <SortBtn field="base_price_buyer" label="Buyer Price" />
         <SortBtn field="base_price_dealer" label="Dealer Price" />
@@ -497,252 +965,737 @@ export default function InventoryPage() {
         <SortBtn field="auction_end" label="Ends" />
       </div>
 
-      {/* Bulk actions bar */}
+      {/* Bulk actions */}
       {canEdit && filtered.length > 0 && (
-        <div className="flex items-center gap-3 mb-4 p-3 bg-white/5 rounded-xl border border-white/10">
-          <button onClick={selectAll} className="flex items-center gap-1.5 text-xs text-zinc-400 hover:text-white transition">
-            {selectedIds.size === filtered.length && filtered.length > 0 ? <CheckSquare size={14} className="text-blue-400" /> : <Square size={14} />}
-            {selectedIds.size === filtered.length && filtered.length > 0 ? "Deselect All" : "Select All"}
+        <div className="flex items-center gap-3 mb-4 p-3 bg-white/5 rounded-xl border border-white/10 flex-wrap">
+          <button
+            onClick={selectAll}
+            className="flex items-center gap-1.5 text-xs text-zinc-400 hover:text-white"
+          >
+            {filtered.every((car) =>
+              selectedIds.has(car.id)
+            ) ? (
+              <CheckSquare
+                size={14}
+                className="text-blue-400"
+              />
+            ) : (
+              <Square size={14} />
+            )}
+            Select All
           </button>
+
           {selectedIds.size > 0 && (
             <>
-              <span className="text-xs text-zinc-500">{selectedIds.size} selected</span>
-              <select value={bulkAction} onChange={(e) => setBulkAction(e.target.value)}
-                className="px-2 py-1 rounded-lg bg-white/5 border border-white/10 text-xs text-white focus:outline-none">
-                <option value="" className="bg-zinc-900">Bulk action…</option>
-                <option value="hide" className="bg-zinc-900">Hide</option>
-                <option value="unhide" className="bg-zinc-900">Unhide</option>
-                <option value="delist" className="bg-zinc-900">Delist</option>
-                <option value="dealer_only" className="bg-zinc-900">Set Dealer Only</option>
-                <option value="all_access" className="bg-zinc-900">Set All Access</option>
+              <span className="text-xs text-zinc-500">
+                {selectedIds.size} selected
+              </span>
+
+              <select
+                value={bulkAction}
+                onChange={(e) =>
+                  setBulkAction(e.target.value)
+                }
+                className="px-2 py-1 rounded-lg bg-zinc-900 border border-white/10 text-xs text-white"
+              >
+                <option value="">Bulk action…</option>
+                <option value="hide">Hide</option>
+                <option value="unhide">Unhide</option>
+                <option value="delist">Delist</option>
+                <option value="dealer_only">
+                  Set Dealer Only
+                </option>
+                <option value="all_access">
+                  Set All Access
+                </option>
               </select>
-              <button onClick={applyBulkAction} disabled={!bulkAction || bulkSaving}
-                className="flex items-center gap-1.5 text-xs font-semibold bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white px-3 py-1.5 rounded-lg transition">
-                {bulkSaving ? <Loader2 size={12} className="animate-spin" /> : null} Apply
+
+              <button
+                onClick={applyBulkAction}
+                disabled={!bulkAction || bulkSaving}
+                className="flex items-center gap-1.5 text-xs font-semibold bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white px-3 py-1.5 rounded-lg"
+              >
+                {bulkSaving && (
+                  <Loader2
+                    size={12}
+                    className="animate-spin"
+                  />
+                )}
+                Apply
               </button>
             </>
           )}
         </div>
       )}
 
-      {loading ? <p className="text-sm text-zinc-500">Loading…</p>
-        : error ? <p className="text-sm text-red-400 flex items-center gap-2"><AlertCircle size={14} /> {error}</p>
-        : filtered.length === 0 ? <p className="text-sm text-zinc-500">No cars match.</p>
-        : (
-          <div className="space-y-3">
-            {filtered.map((car) => {
-              const cover = car.thumbnail_url || (Array.isArray(car.images) && car.images[0]);
-              const bids = bidCounts[car.id] || 0;
-              const isUrgent = car.auction_end && car.status === "live" && (new Date(car.auction_end) - Date.now()) < 86400000;
+      {loading ? (
+        <p className="text-sm text-zinc-500">
+          Loading…
+        </p>
+      ) : error ? (
+        <p className="text-sm text-red-400 flex items-center gap-2">
+          <AlertCircle size={14} />
+          {error}
+        </p>
+      ) : filtered.length === 0 ? (
+        <p className="text-sm text-zinc-500">
+          No cars match.
+        </p>
+      ) : (
+        <div className="space-y-3">
+          {filtered.map((car) => {
+            const cover =
+              car.thumbnail_url ||
+              (Array.isArray(car.images)
+                ? car.images[0]
+                : null);
 
-              return (
-                <div key={car.id} className={`border rounded-xl p-4 bg-white/[0.02] transition ${selectedIds.has(car.id) ? "border-blue-500/40 bg-blue-500/5" : isUrgent ? "border-red-500/30" : "border-white/10"}`}>
-                  <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-4">
+            const bids = bidCounts[car.id] || 0;
 
-                    {/* Left: Checkbox + Thumbnail + Info */}
-                    <div className="flex items-start gap-3 min-w-0">
-                      {/* Checkbox */}
-                      {canEdit && (
-                        <button onClick={() => toggleSelect(car.id)} className="mt-1 shrink-0">
-                          {selectedIds.has(car.id)
-                            ? <CheckSquare size={16} className="text-blue-400" />
-                            : <Square size={16} className="text-zinc-600 hover:text-zinc-400" />}
-                        </button>
-                      )}
+            const isUrgent =
+              car.auction_end &&
+              car.status === "live" &&
+              new Date(car.auction_end).getTime() -
+                Date.now() <
+                86400000;
 
-                      {/* Thumbnail */}
-                      <div className="h-16 w-20 rounded-lg overflow-hidden bg-white/5 border border-white/10 shrink-0 flex items-center justify-center">
-                        {cover
-                          ? <img src={cover} alt="" className="h-full w-full object-cover" />
-                          : <ImageOff size={18} className="text-zinc-600" />}
-                      </div>
+            const c2cEligible = isC2CEligible(car);
+            const c2cOn =
+              c2cEligible && car.c2c_enabled === true;
+            const saving = savingId === car.id;
 
-                      {/* Info */}
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <p className="font-medium text-white truncate">{car.vehicle_title || "Untitled"}</p>
-                          <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full capitalize ${STATUS_STYLES[car.status] || "bg-zinc-500/15 text-zinc-400"}`}>{car.status}</span>
-                          {car.visibility === "hidden" && (
-                            <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-400 flex items-center gap-1"><EyeOff size={11} /> Hidden</span>
-                          )}
-                          {car.access_type === "dealer_only" && (
-                            <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-purple-500/15 text-purple-400 flex items-center gap-1"><Shield size={11} /> Dealer Only</span>
-                          )}
-                          {car.inspected_at ? (
-                            <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-blue-500/15 text-blue-400 flex items-center gap-1.5 capitalize">
-                              <span className={`w-1.5 h-1.5 rounded-full ${INSPECTION_STATUS_DOT[overallInspectionStatus(car)] || "bg-zinc-500"}`} />
-                              {overallInspectionStatus(car) || "Inspected"}
-                            </span>
-                          ) : (
-                            <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-zinc-600/20 text-zinc-500">Not inspected</span>
-                          )}
-                          {/* Auction timer */}
-                          {car.status === "live" && car.auction_end && <AuctionTimer endTime={car.auction_end} />}
-                        </div>
-
-                        {/* Price row */}
-                        <div className="flex items-center gap-3 mt-1.5 flex-wrap">
-                          <span className="text-xs text-zinc-500">
-                            {car.listing_type === "buy_now_only" ? "Buy Now" : "Auction"}
-                          </span>
-                          {car.base_price_buyer && <span className="text-xs text-zinc-400">Buyer: <span className="text-white font-medium">{formatINR(car.base_price_buyer)}</span></span>}
-                          {car.base_price_dealer && <span className="text-xs text-zinc-400">Dealer: <span className="text-white font-medium">{formatINR(car.base_price_dealer)}</span></span>}
-                          {car.buy_now_price && <span className="text-xs text-zinc-400">Buy Now: <span className="text-white font-medium">{formatINR(car.buy_now_price)}</span></span>}
-                          {/* Bid count */}
-                          {bids > 0 && (
-                            <span className="flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400">
-                              <TrendingUp size={10} /> {bids} bid{bids !== 1 ? "s" : ""}
-                            </span>
-                          )}
-                        </div>
-
-                        {/* Handled by */}
-                        <div className="flex items-center gap-2 mt-1.5">
-                          <UserCheck2 size={12} className="text-zinc-500 shrink-0" />
-                          {car.handled_by ? (
-                            <span className="text-xs text-zinc-400">
-                              Handling: <span className="text-zinc-200 font-medium">{staffName(car.handled_by)}</span>
-                              {car.handled_by === currentUser?.id && <span className="text-emerald-400"> (you)</span>}
-                            </span>
-                          ) : <span className="text-xs text-zinc-500">Nobody handling this</span>}
-                          {canEdit && car.handled_by !== currentUser?.id && (
-                            <button disabled={savingId === car.id} onClick={() => claimCar(car)} className="text-xs font-semibold text-blue-400 hover:underline disabled:opacity-50">Claim</button>
-                          )}
-                          {canEdit && staff.length > 1 && (
-                            <select disabled={savingId === car.id} value="" onChange={(e) => reassignCar(car, e.target.value)}
-                              className="text-xs bg-transparent text-zinc-500 hover:text-zinc-300 focus:outline-none disabled:opacity-50">
-                              <option value="" className="bg-zinc-900">Reassign to…</option>
-                              {staff.filter((s) => s.id !== car.handled_by).map((s) => (
-                                <option key={s.id} value={s.id} className="bg-zinc-900">{s.full_name} ({s.role})</option>
-                              ))}
-                            </select>
-                          )}
-                        </div>
-
-                        {notice?.id === car.id && (
-                          <p className={`text-xs mt-1 ${notice.isError ? "text-red-400" : "text-emerald-400"}`}>{notice.text}</p>
+            return (
+              <div
+                key={car.id}
+                className={`border rounded-xl p-4 bg-white/[0.02] transition ${
+                  selectedIds.has(car.id)
+                    ? "border-blue-500/40 bg-blue-500/5"
+                    : isUrgent
+                    ? "border-red-500/30"
+                    : "border-white/10"
+                }`}
+              >
+                <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-4">
+                  {/* Car details */}
+                  <div className="flex items-start gap-3 min-w-0">
+                    {canEdit && (
+                      <button
+                        onClick={() =>
+                          toggleSelect(car.id)
+                        }
+                        className="mt-1 shrink-0"
+                      >
+                        {selectedIds.has(car.id) ? (
+                          <CheckSquare
+                            size={16}
+                            className="text-blue-400"
+                          />
+                        ) : (
+                          <Square
+                            size={16}
+                            className="text-zinc-600"
+                          />
                         )}
-                      </div>
+                      </button>
+                    )}
+
+                    <div className="h-16 w-20 rounded-lg overflow-hidden bg-white/5 border border-white/10 shrink-0 flex items-center justify-center">
+                      {cover ? (
+                        <img
+                          src={cover}
+                          alt=""
+                          className="h-full w-full object-cover"
+                        />
+                      ) : (
+                        <ImageOff
+                          size={18}
+                          className="text-zinc-600"
+                        />
+                      )}
                     </div>
 
-                    {/* Right: Actions */}
-                    <div className="flex flex-wrap items-center gap-2 shrink-0 lg:flex-col lg:items-end">
-                      {/* Row 1: Strategy + Access */}
+                    <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2 flex-wrap">
-                        {/* Listing type toggle — live cars */}
-                        {car.status === "live" && (
-                          <div className="flex items-center gap-1 bg-white/5 rounded-lg p-0.5">
-                            <button disabled={!canEdit || savingId === car.id} onClick={() => setListingType(car, "auction")}
-                              className={`flex items-center gap-1 px-2 py-1.5 rounded-md text-[11px] font-medium transition disabled:cursor-default ${car.listing_type !== "buy_now_only" ? "bg-blue-600 text-white" : "text-zinc-400 hover:text-white"}`}>
-                              <Gavel size={11} /> Auction
-                            </button>
-                            <button disabled={!canEdit || savingId === car.id} onClick={() => setListingType(car, "buy_now_only")}
-                              className={`flex items-center gap-1 px-2 py-1.5 rounded-md text-[11px] font-medium transition disabled:cursor-default ${car.listing_type === "buy_now_only" ? "bg-blue-600 text-white" : "text-zinc-400 hover:text-white"}`}>
-                              <Tag size={11} /> Buy Now
-                            </button>
-                          </div>
+                        <p className="font-medium text-white">
+                          {car.vehicle_title || "Untitled"}
+                        </p>
+
+                        <span
+                          className={`text-[11px] font-semibold px-2 py-0.5 rounded-full capitalize ${
+                            STATUS_STYLES[car.status] ||
+                            "bg-zinc-500/15 text-zinc-400"
+                          }`}
+                        >
+                          {car.status}
+                        </span>
+
+                        {car.visibility === "hidden" && (
+                          <span className="text-[11px] text-amber-400 flex items-center gap-1">
+                            <EyeOff size={11} />
+                            Hidden
+                          </span>
                         )}
 
-                        {/* Access type toggle */}
-                        {canEdit && (
-                          <div className="flex items-center gap-1 bg-white/5 rounded-lg p-0.5">
-                            <button disabled={savingId === car.id} onClick={() => setAccessType(car, "all")}
-                              className={`flex items-center gap-1 px-2 py-1.5 rounded-md text-[11px] font-medium transition ${car.access_type !== "dealer_only" ? "bg-purple-600 text-white" : "text-zinc-400 hover:text-white"}`}>
-                              <Users size={11} /> All
-                            </button>
-                            <button disabled={savingId === car.id} onClick={() => setAccessType(car, "dealer_only")}
-                              className={`flex items-center gap-1 px-2 py-1.5 rounded-md text-[11px] font-medium transition ${car.access_type === "dealer_only" ? "bg-purple-600 text-white" : "text-zinc-400 hover:text-white"}`}>
-                              <Shield size={11} /> Dealer
-                            </button>
-                          </div>
+                        {car.access_type ===
+                          "dealer_only" && (
+                          <span className="text-[11px] text-purple-400 flex items-center gap-1">
+                            <Shield size={11} />
+                            Dealer Only
+                          </span>
+                        )}
+
+                        {car.inspected_at ? (
+                          <span className="text-[11px] text-blue-400 flex items-center gap-1">
+                            <span
+                              className={`w-1.5 h-1.5 rounded-full ${
+                                INSPECTION_STATUS_DOT[
+                                  overallInspectionStatus(
+                                    car
+                                  )
+                                ] || "bg-zinc-500"
+                              }`}
+                            />
+                            {overallInspectionStatus(car) ||
+                              "Inspected"}
+                          </span>
+                        ) : (
+                          <span className="text-[11px] text-zinc-500">
+                            Not inspected
+                          </span>
+                        )}
+
+                        {car.status === "live" &&
+                          car.auction_end && (
+                            <AuctionTimer
+                              endTime={car.auction_end}
+                            />
+                          )}
+                      </div>
+
+                      <div className="flex items-center gap-3 mt-1.5 flex-wrap">
+                        <span className="text-xs text-zinc-500">
+                          {car.listing_type ===
+                          "buy_now_only"
+                            ? "Buy Now"
+                            : "Auction"}
+                        </span>
+
+                        {car.base_price_buyer && (
+                          <span className="text-xs text-zinc-400">
+                            Buyer:{" "}
+                            <span className="text-white font-medium">
+                              {formatINR(
+                                car.base_price_buyer
+                              )}
+                            </span>
+                          </span>
+                        )}
+
+                        {car.base_price_dealer && (
+                          <span className="text-xs text-zinc-400">
+                            Dealer:{" "}
+                            <span className="text-white font-medium">
+                              {formatINR(
+                                car.base_price_dealer
+                              )}
+                            </span>
+                          </span>
+                        )}
+
+                        {car.buy_now_price && (
+                          <span className="text-xs text-zinc-400">
+                            Buy Now:{" "}
+                            <span className="text-white font-medium">
+                              {formatINR(
+                                car.buy_now_price
+                              )}
+                            </span>
+                          </span>
+                        )}
+
+                        {bids > 0 && (
+                          <span className="flex items-center gap-1 text-[11px] text-emerald-400">
+                            <TrendingUp size={10} />
+                            {bids} bid
+                            {bids !== 1 ? "s" : ""}
+                          </span>
                         )}
                       </div>
 
-                      {/* Row 2: Live until + Price edit */}
-                      <div className="flex items-center gap-2 flex-wrap">
-                        {["live", "upcoming"].includes(car.status) && (
-                          <label className="flex flex-col text-xs text-zinc-500 gap-0.5">
-                            Live until
-                            <input type="datetime-local" disabled={!canEdit || savingId === car.id}
-                              defaultValue={toLocalInputValue(car.auction_end)}
-                              onBlur={(e) => { if (e.target.value !== toLocalInputValue(car.auction_end)) setLiveUntil(car, e.target.value); }}
-                              className="px-2 py-1.5 rounded-md bg-white/5 border border-white/10 text-xs text-white disabled:opacity-60 focus:outline-none focus:border-blue-500/50" />
-                          </label>
-                        )}
-                        {/* Edit Prices */}
-                        {canEdit && (
-                          <button onClick={() => setPriceCar(car)} disabled={savingId === car.id}
-                            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium border border-amber-400/30 text-amber-400 hover:bg-amber-500/10 disabled:opacity-50 transition">
-                            <IndianRupee size={13} /> Prices
-                          </button>
+                      {/* C2C status */}
+                      <div className="mt-2">
+                        {c2cEligible ? (
+                          <span
+                            className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold ${
+                              c2cOn
+                                ? "bg-emerald-500/15 text-emerald-400"
+                                : "bg-zinc-500/15 text-zinc-400"
+                            }`}
+                          >
+                            C2C {c2cOn ? "ON" : "OFF"}
+                          </span>
+                        ) : (
+                          <span className="text-[11px] text-zinc-600">
+                            C2C not available
+                          </span>
                         )}
                       </div>
 
-                      {/* Row 3: Re-list / Hide / Delist / Inspect */}
-                      <div className="flex items-center gap-2 flex-wrap">
-                        {canEdit && canRelist(car) && (
-                          <button disabled={savingId === car.id} onClick={() => setRelistCar(car)}
-                            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-semibold border border-emerald-400/30 text-emerald-400 hover:bg-emerald-500/10 disabled:opacity-50 transition">
-                            {savingId === car.id ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />} Re-list
-                          </button>
+                      {/* Staff assignment */}
+                      <div className="flex items-center gap-2 mt-2 flex-wrap">
+                        <UserCheck2
+                          size={12}
+                          className="text-zinc-500"
+                        />
+
+                        {car.handled_by ? (
+                          <span className="text-xs text-zinc-400">
+                            Handling:{" "}
+                            <span className="text-zinc-200">
+                              {staffName(car.handled_by)}
+                            </span>
+                            {car.handled_by ===
+                              currentUser?.id && (
+                              <span className="text-emerald-400">
+                                {" "}
+                                (you)
+                              </span>
+                            )}
+                          </span>
+                        ) : (
+                          <span className="text-xs text-zinc-500">
+                            Nobody handling this
+                          </span>
                         )}
-                        <button disabled={!canEdit || savingId === car.id} onClick={() => toggleVisibility(car)}
-                          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium border border-white/10 text-zinc-300 hover:bg-white/5 disabled:opacity-50 disabled:cursor-default">
-                          {car.visibility === "hidden" ? <Eye size={13} /> : <EyeOff size={13} />}
-                          {car.visibility === "hidden" ? "Unhide" : "Hide"}
-                        </button>
-                        {canEdit && !["delisted", "draft"].includes(car.status) && (
-                          <button disabled={savingId === car.id} onClick={() => delist(car)}
-                            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium bg-red-600 hover:bg-red-500 text-white disabled:opacity-50 transition">
-                            {savingId === car.id ? <Loader2 size={13} className="animate-spin" /> : <Ban size={13} />} Delist
-                          </button>
+
+                        {canEdit &&
+                          car.handled_by !==
+                            currentUser?.id && (
+                            <button
+                              disabled={saving}
+                              onClick={() =>
+                                claimCar(car)
+                              }
+                              className="text-xs font-semibold text-blue-400 hover:underline disabled:opacity-50"
+                            >
+                              Claim
+                            </button>
+                          )}
+
+                        {canEdit && staff.length > 1 && (
+                          <select
+                            disabled={saving}
+                            value=""
+                            onChange={(e) =>
+                              reassignCar(
+                                car,
+                                e.target.value
+                              )
+                            }
+                            className="text-xs bg-zinc-900 text-zinc-400 border border-white/10 rounded"
+                          >
+                            <option value="">
+                              Reassign to…
+                            </option>
+                            {staff
+                              .filter(
+                                (person) =>
+                                  person.id !==
+                                  car.handled_by
+                              )
+                              .map((person) => (
+                                <option
+                                  key={person.id}
+                                  value={person.id}
+                                >
+                                  {person.full_name} (
+                                  {person.role})
+                                </option>
+                              ))}
+                          </select>
                         )}
-                        <button disabled={savingId === car.id} onClick={() => toggleInspectionPanel(car)}
-                          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium border border-white/10 text-zinc-300 hover:bg-white/5 disabled:opacity-50">
-                          <ClipboardCheck size={13} />
-                          {canEdit ? "Inspect" : "View"}
-                          {expandedId === car.id ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
-                        </button>
                       </div>
+
+                      {notice?.id === car.id && (
+                        <p
+                          className={`text-xs mt-2 ${
+                            notice.isError
+                              ? "text-red-400"
+                              : "text-emerald-400"
+                          }`}
+                        >
+                          {notice.text}
+                        </p>
+                      )}
                     </div>
                   </div>
 
-                  {/* Inspection Panel */}
-                  {expandedId === car.id && draft && (
-                    <div className="mt-4 pt-4 border-t border-white/10 grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                      {INSPECTION_CATEGORIES.map(({ key, label }) => (
-                        <div key={key}>
-                          <p className="text-xs text-zinc-400 mb-1">{label}</p>
-                          <select disabled={!canEdit} value={draft.inspection[key]?.status || ""} onChange={(e) => setDraftCategory(key, "status", e.target.value)}
-                            className="w-full px-2.5 py-1.5 rounded-md bg-white/5 border border-white/10 text-xs text-white disabled:opacity-60 focus:outline-none focus:border-blue-500/50">
-                            {INSPECTION_STATUS_OPTIONS.map((o) => <option key={o.value} value={o.value} className="bg-zinc-900">{o.label}</option>)}
-                          </select>
-                          {draft.inspection[key]?.status && (
-                            <input disabled={!canEdit} value={draft.inspection[key]?.note || ""} onChange={(e) => setDraftCategory(key, "note", e.target.value)} placeholder="Note (optional)"
-                              className="w-full mt-1.5 px-2.5 py-1.5 rounded-md bg-white/5 border border-white/10 text-xs text-white disabled:opacity-60 focus:outline-none focus:border-blue-500/50" />
-                          )}
+                  {/* Actions */}
+                  <div className="flex flex-wrap items-center gap-2 shrink-0 lg:flex-col lg:items-end">
+                    {/* Listing and access */}
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {car.status === "live" && (
+                        <div className="flex items-center gap-1 bg-white/5 rounded-lg p-0.5">
+                          <button
+                            disabled={!canEdit || saving}
+                            onClick={() =>
+                              setListingType(
+                                car,
+                                "auction"
+                              )
+                            }
+                            className={`flex items-center gap-1 px-2 py-1.5 rounded-md text-[11px] font-medium disabled:opacity-50 ${
+                              car.listing_type !==
+                              "buy_now_only"
+                                ? "bg-blue-600 text-white"
+                                : "text-zinc-400 hover:text-white"
+                            }`}
+                          >
+                            <Gavel size={11} />
+                            Auction
+                          </button>
+
+                          <button
+                            disabled={!canEdit || saving}
+                            onClick={() =>
+                              setListingType(
+                                car,
+                                "buy_now_only"
+                              )
+                            }
+                            className={`flex items-center gap-1 px-2 py-1.5 rounded-md text-[11px] font-medium disabled:opacity-50 ${
+                              car.listing_type ===
+                              "buy_now_only"
+                                ? "bg-blue-600 text-white"
+                                : "text-zinc-400 hover:text-white"
+                            }`}
+                          >
+                            <Tag size={11} />
+                            Buy Now
+                          </button>
                         </div>
-                      ))}
-                      <div className="sm:col-span-2 lg:col-span-3">
-                        <p className="text-xs text-zinc-400 mb-1">Overall notes</p>
-                        <textarea disabled={!canEdit} rows={2} value={draft.inspection_notes} onChange={(e) => setDraft((d) => ({ ...d, inspection_notes: e.target.value }))}
-                          className="w-full px-2.5 py-1.5 rounded-md bg-white/5 border border-white/10 text-xs text-white disabled:opacity-60 focus:outline-none focus:border-blue-500/50" />
-                      </div>
+                      )}
+
                       {canEdit && (
-                        <div className="sm:col-span-2 lg:col-span-3 flex justify-end">
-                          <button onClick={() => saveInspection(car.id)} disabled={savingId === car.id}
-                            className="flex items-center gap-1.5 text-xs font-semibold bg-blue-600 hover:bg-blue-500 disabled:opacity-60 text-white px-3.5 py-2 rounded-lg transition">
-                            {savingId === car.id && <Loader2 size={13} className="animate-spin" />} Save Inspection Report
+                        <div className="flex items-center gap-1 bg-white/5 rounded-lg p-0.5">
+                          <button
+                            disabled={saving}
+                            onClick={() =>
+                              setAccessType(car, "all")
+                            }
+                            className={`flex items-center gap-1 px-2 py-1.5 rounded-md text-[11px] font-medium ${
+                              car.access_type !==
+                              "dealer_only"
+                                ? "bg-purple-600 text-white"
+                                : "text-zinc-400"
+                            }`}
+                          >
+                            <Users size={11} />
+                            All
+                          </button>
+
+                          <button
+                            disabled={saving}
+                            onClick={() =>
+                              setAccessType(
+                                car,
+                                "dealer_only"
+                              )
+                            }
+                            className={`flex items-center gap-1 px-2 py-1.5 rounded-md text-[11px] font-medium ${
+                              car.access_type ===
+                              "dealer_only"
+                                ? "bg-purple-600 text-white"
+                                : "text-zinc-400"
+                            }`}
+                          >
+                            <Shield size={11} />
+                            Dealer
                           </button>
                         </div>
                       )}
                     </div>
-                  )}
+
+                    {/* NEW C2C ON/OFF CONTROL */}
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {c2cEligible ? (
+                        <div className="flex items-center gap-2 border border-amber-500/25 bg-amber-500/5 rounded-lg px-3 py-2">
+                          <span className="text-xs font-semibold text-amber-400">
+                            C2C Deal
+                          </span>
+
+                          <button
+                            type="button"
+                            disabled={!canEdit || saving}
+                            onClick={() =>
+                              toggleC2C(car)
+                            }
+                            aria-pressed={c2cOn}
+                            className={`relative inline-flex h-6 w-11 items-center rounded-full transition disabled:opacity-50 ${
+                              c2cOn
+                                ? "bg-emerald-600"
+                                : "bg-zinc-600"
+                            }`}
+                            title={
+                              c2cOn
+                                ? "Turn C2C OFF"
+                                : "Turn C2C ON"
+                            }
+                          >
+                            <span
+                              className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition ${
+                                c2cOn
+                                  ? "translate-x-6"
+                                  : "translate-x-1"
+                              }`}
+                            />
+                          </button>
+
+                          <span
+                            className={`text-xs font-bold ${
+                              c2cOn
+                                ? "text-emerald-400"
+                                : "text-zinc-400"
+                            }`}
+                          >
+                            {saving
+                              ? "Saving…"
+                              : c2cOn
+                              ? "ON"
+                              : "OFF"}
+                          </span>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-2 border border-white/10 rounded-lg px-3 py-2 opacity-60">
+                          <span className="text-xs text-zinc-500">
+                            C2C Unavailable
+                          </span>
+                          <Shield
+                            size={13}
+                            className="text-zinc-500"
+                          />
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Date and price */}
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {["live", "upcoming"].includes(
+                        car.status
+                      ) && (
+                        <label className="flex flex-col text-xs text-zinc-500 gap-0.5">
+                          Live until
+                          <input
+                            type="datetime-local"
+                            disabled={!canEdit || saving}
+                            defaultValue={toLocalInputValue(
+                              car.auction_end
+                            )}
+                            onBlur={(e) => {
+                              if (
+                                e.target.value !==
+                                toLocalInputValue(
+                                  car.auction_end
+                                )
+                              ) {
+                                setLiveUntil(
+                                  car,
+                                  e.target.value
+                                );
+                              }
+                            }}
+                            className="px-2 py-1.5 rounded-md bg-white/5 border border-white/10 text-xs text-white disabled:opacity-60"
+                          />
+                        </label>
+                      )}
+
+                      {canEdit && (
+                        <button
+                          onClick={() =>
+                            setPriceCar(car)
+                          }
+                          disabled={saving}
+                          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium border border-amber-400/30 text-amber-400 hover:bg-amber-500/10 disabled:opacity-50"
+                        >
+                          <IndianRupee size={13} />
+                          Prices
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Other actions */}
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {canEdit && canRelist(car) && (
+                        <button
+                          disabled={saving}
+                          onClick={() =>
+                            setRelistCar(car)
+                          }
+                          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-semibold border border-emerald-400/30 text-emerald-400 hover:bg-emerald-500/10 disabled:opacity-50"
+                        >
+                          <RefreshCw size={13} />
+                          Re-list
+                        </button>
+                      )}
+
+                      <button
+                        disabled={!canEdit || saving}
+                        onClick={() =>
+                          toggleVisibility(car)
+                        }
+                        className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium border border-white/10 text-zinc-300 hover:bg-white/5 disabled:opacity-50"
+                      >
+                        {car.visibility === "hidden" ? (
+                          <Eye size={13} />
+                        ) : (
+                          <EyeOff size={13} />
+                        )}
+                        {car.visibility === "hidden"
+                          ? "Unhide"
+                          : "Hide"}
+                      </button>
+
+                      {canEdit &&
+                        !["delisted", "draft"].includes(
+                          car.status
+                        ) && (
+                          <button
+                            disabled={saving}
+                            onClick={() =>
+                              delist(car)
+                            }
+                            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium bg-red-600 hover:bg-red-500 text-white disabled:opacity-50"
+                          >
+                            <Ban size={13} />
+                            Delist
+                          </button>
+                        )}
+
+                      <button
+                        disabled={saving}
+                        onClick={() =>
+                          toggleInspectionPanel(car)
+                        }
+                        className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium border border-white/10 text-zinc-300 hover:bg-white/5 disabled:opacity-50"
+                      >
+                        <ClipboardCheck size={13} />
+                        {canEdit ? "Inspect" : "View"}
+                        {expandedId === car.id ? (
+                          <ChevronUp size={13} />
+                        ) : (
+                          <ChevronDown size={13} />
+                        )}
+                      </button>
+                    </div>
+                  </div>
                 </div>
-              );
-            })}
-          </div>
-        )}
+
+                {/* Inspection panel */}
+                {expandedId === car.id && draft && (
+                  <div className="mt-4 pt-4 border-t border-white/10 grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {INSPECTION_CATEGORIES.map(
+                      ({ key, label }) => (
+                        <div key={key}>
+                          <p className="text-xs text-zinc-400 mb-1">
+                            {label}
+                          </p>
+
+                          <select
+                            disabled={!canEdit}
+                            value={
+                              draft.inspection[key]
+                                ?.status || ""
+                            }
+                            onChange={(e) =>
+                              setDraftCategory(
+                                key,
+                                "status",
+                                e.target.value
+                              )
+                            }
+                            className="w-full px-2.5 py-1.5 rounded-md bg-zinc-900 border border-white/10 text-xs text-white disabled:opacity-60"
+                          >
+                            {INSPECTION_STATUS_OPTIONS.map(
+                              (option) => (
+                                <option
+                                  key={option.value}
+                                  value={option.value}
+                                >
+                                  {option.label}
+                                </option>
+                              )
+                            )}
+                          </select>
+
+                          {draft.inspection[key]
+                            ?.status && (
+                            <input
+                              disabled={!canEdit}
+                              value={
+                                draft.inspection[key]
+                                  ?.note || ""
+                              }
+                              onChange={(e) =>
+                                setDraftCategory(
+                                  key,
+                                  "note",
+                                  e.target.value
+                                )
+                              }
+                              placeholder="Note (optional)"
+                              className="w-full mt-1.5 px-2.5 py-1.5 rounded-md bg-white/5 border border-white/10 text-xs text-white disabled:opacity-60"
+                            />
+                          )}
+                        </div>
+                      )
+                    )}
+
+                    <div className="sm:col-span-2 lg:col-span-3">
+                      <p className="text-xs text-zinc-400 mb-1">
+                        Overall notes
+                      </p>
+
+                      <textarea
+                        disabled={!canEdit}
+                        rows={2}
+                        value={draft.inspection_notes}
+                        onChange={(e) =>
+                          setDraft((previous) => ({
+                            ...previous,
+                            inspection_notes:
+                              e.target.value,
+                          }))
+                        }
+                        className="w-full px-2.5 py-1.5 rounded-md bg-white/5 border border-white/10 text-xs text-white disabled:opacity-60"
+                      />
+                    </div>
+
+                    {canEdit && (
+                      <div className="sm:col-span-2 lg:col-span-3 flex justify-end">
+                        <button
+                          onClick={() =>
+                            saveInspection(car.id)
+                          }
+                          disabled={saving}
+                          className="flex items-center gap-1.5 text-xs font-semibold bg-blue-600 hover:bg-blue-500 disabled:opacity-60 text-white px-3.5 py-2 rounded-lg"
+                        >
+                          {saving && (
+                            <Loader2
+                              size={13}
+                              className="animate-spin"
+                            />
+                          )}
+                          Save Inspection Report
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
