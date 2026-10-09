@@ -278,7 +278,7 @@ const LiveAuctions = () => {
           <div className="mt-6">
             <span className="inline-flex items-center gap-2 text-xs font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 px-4 py-2 rounded-full">
               <ShieldCheck size={14} />
-              {cars.length} live listing
+              {cars.filter((car) => car.listing_type !== "buy_now_only").length} live auction
               {cars.length === 1 ? "" : "s"}
             </span>
           </div>
