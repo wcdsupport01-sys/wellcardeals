@@ -1,24 +1,18 @@
+
 import { Navigate, useLocation } from "react-router-dom";
 import { useAuth } from "./AuthContext";
 import DealerPendingGate from "./DealerPendingGate";
 
 /**
- * Generic auth + role gate for React Router v6.
+ * Authentication and role protection.
  *
- * - Still loading the auth/profile listener  -> render a loading state,
- *   never a redirect (redirecting before `role` resolves would bounce a
- *   legit admin to /login on every refresh).
- * - Not authenticated                        -> redirect to `loginPath`.
- * - Authenticated but role not in `allowedRoles` -> redirect to
- *   `unauthorizedPath` (defaults to /unauthorized), not the page they tried
- *   to reach — don't leak that a route exists to someone who can't use it.
- * - Dealer, but not yet approved              -> redirect to /dealer/pending
- *   instead of the dashboard (only applies when "dealer" is an allowed role).
+ * Dealer access:
+ * - Pending/rejected/suspended dealers are blocked.
+ * - Approved dealers can access dealer pages without
+ *   the old SMS/WhatsApp verification code.
  *
- * Usage:
- *   <ProtectedRoute allowedRoles={["buyer"]} loginPath="/login">
- *     <BuyerLayout />
- *   </ProtectedRoute>
+ * Admin, Manager, TL, Buyer and Agent role protection
+ * remains unchanged.
  */
 export default function ProtectedRoute({
   allowedRoles,
@@ -26,8 +20,7 @@ export default function ProtectedRoute({
   unauthorizedPath = "/unauthorized",
   children,
 }) {
-  const { session, role: myRole, profile, dealerStatus, dealerAccessCodeVerified, loading } =
-    useAuth();
+  const { session, role: myRole, dealerStatus, loading } = useAuth();
   const location = useLocation();
 
   if (loading || session === undefined) {
@@ -39,28 +32,22 @@ export default function ProtectedRoute({
   }
 
   if (!session) {
-    return <Navigate to={loginPath} replace state={{ from: location }} />;
+    return (
+      <Navigate
+        to={loginPath}
+        replace
+        state={{ from: location }}
+      />
+    );
   }
 
-  if (!allowedRoles.includes(myRole)) {
+  if (!allowedRoles?.includes(myRole)) {
     return <Navigate to={unauthorizedPath} replace />;
   }
 
   if (myRole === "dealer" && allowedRoles.includes("dealer")) {
     if (dealerStatus !== "approved") {
       return <DealerPendingGate />;
-    }
-    // Approved, but hasn't entered the SMS/WhatsApp access code yet —
-    // block the dashboard/live-auctions until they do. Only applies to
-    // dealers who came through the OLD dealerRegister() flow, which is the
-    // only one that ever sets dealer_access_code. Phase 6/7 Dealer ID
-    // dealers never get one, so they must not be stuck here.
-    if (
-      profile?.dealer_access_code &&
-      !dealerAccessCodeVerified &&
-      location.pathname !== "/dealer/verify-code"
-    ) {
-      return <Navigate to="/dealer/verify-code" replace />;
     }
   }
 
