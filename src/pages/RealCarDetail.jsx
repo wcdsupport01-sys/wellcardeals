@@ -276,7 +276,7 @@ const RealCarDetail = () => {
     ? Math.round((loanAmount * monthlyRate * Math.pow(1 + monthlyRate, tenureMonths)) / (Math.pow(1 + monthlyRate, tenureMonths) - 1))
     : Math.round(loanAmount / tenureMonths);
 
-  // Inventory mein saved photos ko priority do. // Thumbnail ko fallback rakho, taaki purani listings bhi chalti rahein. const savedImages = Array.isArray(car.images)   ? car.images.filter((url) => typeof url === "string" && url.trim())   : [];  const images = Array.from(   new Set([     ...savedImages,     car.thumbnail_url,   ].filter(Boolean)) );
+  const images = Array.from(new Set([car.thumbnail_url, ...(Array.isArray(car.images) ? car.images : [])].filter(Boolean)));
   const images360 = Array.isArray(car.images_360) ? car.images_360.filter(Boolean) : [];
   const videos = Array.isArray(car.videos) ? car.videos.filter(Boolean) : [];
   const documents = Array.isArray(car.documents) ? car.documents.filter((d) => d && (d.url || d.name)) : [];
