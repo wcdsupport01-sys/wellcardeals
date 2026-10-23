@@ -182,20 +182,17 @@ function AuctionTimer({ endTime }) {
 // WCD STICKER IMAGE GENERATOR
 // ============================================================
 
+
+const WCD_LOGO_URL = "/wcd-plate-logo.png";
+
 function loadCanvasImage(url) {
   return new Promise((resolve, reject) => {
     const image = new Image();
-
     image.crossOrigin = "anonymous";
 
     image.onload = () => resolve(image);
-
     image.onerror = () =>
-      reject(
-        new Error(
-          "Image load failed. Supabase Storage CORS or image URL check karo."
-        )
-      );
+      reject(new Error(`Image load failed: ${url}`));
 
     image.src = url;
   });
@@ -206,71 +203,83 @@ async function createWCDStickerFile(
   position,
   stickerWidth
 ) {
-  const image = await loadCanvasImage(imageUrl);
+  const [photo, logo] = await Promise.all([
+    loadCanvasImage(imageUrl),
+    loadCanvasImage(WCD_LOGO_URL)
+  ]);
 
   const canvas = document.createElement("canvas");
-
-  canvas.width = image.naturalWidth;
-  canvas.height = image.naturalHeight;
+  canvas.width = photo.naturalWidth;
+  canvas.height = photo.naturalHeight;
 
   const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("Canvas unavailable.");
 
-  if (!ctx) {
-    throw new Error("Canvas not supported.");
-  }
+  ctx.drawImage(photo, 0, 0);
 
-  ctx.drawImage(image, 0, 0);
-
+  // White branded plate, ratio 2.5:1
   const width = canvas.width * stickerWidth;
-  const height = width * 0.24;
+  const height = width / 2.5;
 
   const centerX = position.x * canvas.width;
   const centerY = position.y * canvas.height;
 
-  const x = centerX - width / 2;
-  const y = centerY - height / 2;
+  const x = Math.max(
+    0,
+    Math.min(canvas.width - width, centerX - width / 2)
+  );
 
-  // White number plate
+  const y = Math.max(
+    0,
+    Math.min(canvas.height - height, centerY - height / 2)
+  );
+
+  ctx.save();
+
   ctx.fillStyle = "#ffffff";
   ctx.fillRect(x, y, width, height);
 
-  // WCD blue border
   ctx.strokeStyle = "#16449a";
-  ctx.lineWidth = Math.max(2, width * 0.018);
+  ctx.lineWidth = Math.max(2, width * 0.012);
   ctx.strokeRect(x, y, width, height);
 
-  // Branding
-  ctx.fillStyle = "#16449a";
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
+  // Original logo, without distortion
+  const padding = width * 0.025;
+  const availableWidth = width - padding * 2;
+  const availableHeight = height - padding * 2;
 
-  ctx.font = `bold ${Math.max(8, height * 0.44)}px Arial`;
-
-  ctx.fillText(
-    "WELLCARDEALS",
-    centerX,
-    centerY,
-    width * 0.92
+  const scale = Math.min(
+    availableWidth / logo.naturalWidth,
+    availableHeight / logo.naturalHeight
   );
 
+  const logoWidth = logo.naturalWidth * scale;
+  const logoHeight = logo.naturalHeight * scale;
+
+  ctx.drawImage(
+    logo,
+    x + (width - logoWidth) / 2,
+    y + (height - logoHeight) / 2,
+    logoWidth,
+    logoHeight
+  );
+
+  ctx.restore();
+
   const blob = await new Promise((resolve, reject) => {
-    try {
-      canvas.toBlob(
-        (result) => {
-          if (result) resolve(result);
-          else reject(new Error("Image export failed."));
-        },
-        "image/jpeg",
-        0.93
-      );
-    } catch (error) {
-      reject(error);
-    }
+    canvas.toBlob(
+      (result) =>
+        result
+          ? resolve(result)
+          : reject(new Error("Sticker export failed.")),
+      "image/jpeg",
+      0.95
+    );
   });
 
   return new File(
     [blob],
-    `wellcardeals-${Date.now()}.jpg`,
+    `wcd-sticker-${Date.now()}.jpg`,
     { type: "image/jpeg" }
   );
 }
@@ -447,90 +456,152 @@ function EditCarModal({ car, onClose, onSaved }) {
     return number;
   }
 
-  async function save() {
+  
+async function save() {
+  setError("");
+  setMessage("");
+
+  try {
     if (!form.vehicle_title.trim()) {
-      setError("Car title required.");
-      return;
+      throw new Error("Car title required.");
     }
 
     if (!images.length) {
-      setError("At least one car photo is required.");
-      return;
+      throw new Error("At least one photo required.");
     }
 
+    const payload = {};
+
+    const textFields = [
+      "vehicle_title",
+      "variant",
+      "location"
+    ];
+
+    for (const key of textFields) {
+      const next = String(form[key] ?? "").trim();
+      const old = String(car[key] ?? "").trim();
+
+      if (next !== old) {
+        payload[key] = next;
+      }
+    }
+
+    const numericFields = [
+      "mileage_km",
+      "base_price_buyer",
+      "base_price_dealer",
+      "buy_now_price",
+      "starting_bid",
+      "reserve_price"
+    ];
+
+    for (const key of numericFields) {
+      const next = numberOrNull(form[key]);
+      const old = car[key] == null
+        ? null
+        : Number(car[key]);
+
+      if (next !== old) {
+        payload[key] = next;
+      }
+    }
+
+    for (const key of [
+      "listing_type",
+      "access_type",
+      "visibility"
+    ]) {
+      if (form[key] !== car[key]) {
+        payload[key] = form[key];
+      }
+    }
+
+    const nextC2C =
+      canUseC2C && form.c2c_enabled === true;
+
+    if (nextC2C !== (car.c2c_enabled === true)) {
+      payload.c2c_enabled = nextC2C;
+    }
+
+    const oldAuctionEnd = car.auction_end
+      ? new Date(car.auction_end).toISOString()
+      : null;
+
+    const nextAuctionEnd =
+      form.listing_type === "auction" && form.auction_end
+        ? new Date(form.auction_end).toISOString()
+        : null;
+
+    if (nextAuctionEnd !== oldAuctionEnd) {
+      payload.auction_end = nextAuctionEnd;
+    }
+
+    const oldImages = carImages(car);
+
     if (
-      form.listing_type === "buy_now_only" &&
-      !numberOrNull(form.buy_now_price)
+      JSON.stringify(images) !==
+      JSON.stringify(oldImages)
     ) {
-      setError("Buy Now price required.");
+      payload.images = [...images];
+      payload.thumbnail_url = images[0];
+    }
+
+    if (Object.keys(payload).length === 0) {
+      setMessage("No changes to save.");
       return;
     }
 
+    const auctionSensitiveFields = [
+      "listing_type",
+      "access_type",
+      "starting_bid",
+      "reserve_price",
+      "auction_end"
+    ];
+
     if (
-      form.listing_type === "auction" &&
       car.status === "live" &&
-      !form.auction_end
+      car.listing_type === "auction" &&
+      auctionSensitiveFields.some(
+        (key) => Object.hasOwn(payload, key)
+      )
     ) {
-      setError("Live auction requires an end date.");
-      return;
+      throw new Error(
+        "Live auction settings cannot be changed from this editor."
+      );
     }
 
     setBusy(true);
-    setError("");
 
-    try {
-      const payload = {
-        vehicle_title: form.vehicle_title.trim(),
-        variant: form.variant.trim(),
-        mileage_km: numberOrNull(form.mileage_km),
-        location: form.location.trim(),
+    const updated = await updateCar(car.id, payload);
 
-        base_price_buyer: numberOrNull(
-          form.base_price_buyer
-        ),
-
-        base_price_dealer: numberOrNull(
-          form.base_price_dealer
-        ),
-
-        buy_now_price: numberOrNull(
-          form.buy_now_price
-        ),
-
-        starting_bid: numberOrNull(
-          form.starting_bid
-        ),
-
-        reserve_price: numberOrNull(
-          form.reserve_price
-        ),
-
-        listing_type: form.listing_type,
-        access_type: form.access_type,
-        visibility: form.visibility,
-
-        c2c_enabled:
-          canUseC2C && form.c2c_enabled === true,
-
-        auction_end:
-          form.listing_type === "auction" &&
-          form.auction_end
-            ? new Date(form.auction_end).toISOString()
-            : null,
-
-        images,
-        thumbnail_url: images[0]
-      };
-
-      const updated = await updateCar(car.id, payload);
-
-      onSaved(updated || { ...car, ...payload });
-    } catch (err) {
-      setError(err.message || "Save failed.");
-    } finally {
-      setBusy(false);
+    if (!updated || updated.id !== car.id) {
+      throw new Error(
+        "Could not verify saved car. Refresh Inventory."
+      );
     }
+
+    if (payload.images) {
+      if (
+        JSON.stringify(updated.images) !==
+          JSON.stringify(payload.images) ||
+        updated.thumbnail_url !== payload.thumbnail_url
+      ) {
+        throw new Error(
+          "Photo update could not be verified."
+        );
+      }
+    }
+
+    onSaved(updated);
+  } catch (err) {
+    setError(err.message || "Save failed.");
+  } finally {
+    setBusy(false);
   }
+}
+
 
   return (
     <Modal
@@ -724,37 +795,40 @@ function EditCarModal({ car, onClose, onSaved }) {
             </label>
           </div>
 
-          {selectedUrl ? (
-            <div className="flex justify-center rounded-xl border border-white/10 bg-black/40 p-2">
-              <div className="relative inline-block max-w-full">
-                <img
-                  src={selectedUrl}
-                  alt="Selected car"
-                  onClick={placeSticker}
-                  className="block max-h-[440px] max-w-full cursor-crosshair rounded-lg"
-                />
+         
+{selectedUrl ? (
+  <div className="flex justify-center rounded-xl border border-white/10 bg-black/40 p-2">
+    <div className="relative inline-block max-w-full">
+      <img
+        src={selectedUrl}
+        alt="Selected car"
+        onClick={placeSticker}
+        className="block max-h-[440px] max-w-full cursor-crosshair rounded-lg"
+      />
 
-                <div
-                  className="pointer-events-none absolute flex items-center justify-center overflow-hidden border-2 border-blue-800 bg-white font-bold text-blue-900 shadow-xl"
-                  style={{
-                    left: `${position.x * 100}%`,
-                    top: `${position.y * 100}%`,
-                    width: `${stickerWidth * 100}%`,
-                    aspectRatio: "4.17 / 1",
-                    transform: "translate(-50%, -50%)",
-                    fontSize: "clamp(5px, 1.1vw, 14px)",
-                    whiteSpace: "nowrap"
-                  }}
-                >
-                  WELLCARDEALS
-                </div>
-              </div>
-            </div>
-          ) : (
-            <div className="flex h-48 items-center justify-center rounded-xl bg-white/5 text-zinc-500">
-              <ImageOff size={28} />
-            </div>
-          )}
+      <div
+        className="pointer-events-none absolute flex items-center justify-center overflow-hidden border-2 border-blue-800 bg-white shadow-xl"
+        style={{
+          left: `${position.x * 100}%`,
+          top: `${position.y * 100}%`,
+          width: `${stickerWidth * 100}%`,
+          aspectRatio: "2.5 / 1",
+          transform: "translate(-50%, -50%)"
+        }}
+      >
+        <img
+          src={WCD_LOGO_URL}
+          alt="WellCarDeals Logo Sticker"
+          className="h-full w-full object-contain"
+        />
+      </div>
+    </div>
+  </div>
+) : (
+  <div className="flex h-48 items-center justify-center rounded-xl bg-white/5 text-zinc-500">
+    <ImageOff size={28} />
+  </div>
+)}
 
           <div className="mt-4 space-y-3">
             <p className="text-xs text-zinc-400">
