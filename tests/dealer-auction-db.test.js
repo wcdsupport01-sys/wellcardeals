@@ -251,3 +251,23 @@ dbtest(
     assert.equal(watch.items[0].id, watched);
   },
 );
+
+dbtest("legacy frontend signature delegates to verified v2 without changing its response shape", async () => {
+  const id = await auction();
+  const car = JSON.parse(await as(1, `SELECT to_jsonb(public.place_dealer_bid('${id}',105000))`));
+  assert.equal(car.id, id);
+  assert.equal(car.current_bid_dealer, 105000);
+  assert.equal(car.highest_bidder_id_dealer, user(1));
+  assert.equal(await sql(`SELECT count(*) FROM public.car_bids WHERE car_id='${id}' AND request_id IS NOT NULL`), '1');
+  await assert.rejects(as(1, `SELECT public.place_dealer_bid('${id}',105000)`), /at least/);
+  await assert.rejects(as(3, `SELECT public.place_dealer_bid('${id}',110000)`), /approved dealers/);
+  await assert.rejects(as(1, `SELECT public.place_dealer_bid('${id}',110000.5)`), /whole-rupee/);
+  await assert.rejects(sql(`SET ROLE anon; SELECT public.place_dealer_bid('${id}',110000)`), /permission denied/);
+});
+
+dbtest("legacy endpoint also rejects closed and buy-now auctions", async () => {
+  const closed = await auction("auction_end=clock_timestamp()-interval '1 second'");
+  const buyNow = await auction("listing_type='buy_now_only'");
+  await assert.rejects(as(1, `SELECT public.place_dealer_bid('${closed}',105000)`), /not open/);
+  await assert.rejects(as(1, `SELECT public.place_dealer_bid('${buyNow}',105000)`), /not open/);
+});

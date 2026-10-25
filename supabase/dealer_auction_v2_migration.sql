@@ -1,8 +1,22 @@
 -- Dealer auction v2. Apply AFTER the existing auth/car/auction/wishlist migrations.
 -- Keep a schema backup first. Deploy the frontend only after this succeeds.
--- Existing bids are preserved. Browser roles lose direct bid writes and the old
--- dealer bid RPC is retired; service_role/SQL admin maintenance still works.
+-- Existing bids are preserved. Browser roles lose direct bid writes. The audited
+-- two-argument legacy RPC delegates to v2, so the current UI can keep working.
+-- New UI requests use v2 directly for stable request IDs and receipt recovery.
 BEGIN;
+-- Fail before changing anything if a customized live schema uses incompatible
+-- ID types. The exported legacy RPC already establishes UUID car IDs.
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public'
+    AND table_name='car_bids' AND column_name='id' AND udt_name IN ('int2','int4','int8')) THEN
+    RAISE EXCEPTION 'Unsupported car_bids.id type. Inspect the live schema before applying this upgrade.';
+  END IF;
+  IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public'
+    AND table_name='car_bids' AND column_name='request_id' AND udt_name <> 'uuid') THEN
+    RAISE EXCEPTION 'Existing car_bids.request_id must have UUID type.';
+  END IF;
+END $$;
 ALTER TABLE public.car_bids ADD COLUMN IF NOT EXISTS request_id uuid;
 CREATE UNIQUE INDEX IF NOT EXISTS car_bids_request_id_key ON public.car_bids(request_id);
 CREATE INDEX IF NOT EXISTS car_bids_dealer_latest_idx ON public.car_bids(bidder_id, car_id, created_at DESC, id DESC);
@@ -20,7 +34,7 @@ BEGIN
     'my_bid', (SELECT to_jsonb(b) FROM public.car_bids b WHERE b.car_id=c.id AND b.bidder_id=auth.uid() ORDER BY b.created_at DESC,b.id DESC LIMIT 1),
     'my_bid_count', (SELECT count(*) FROM public.car_bids b WHERE b.car_id=c.id AND b.bidder_id=auth.uid()),
     'recent_bids', coalesce((SELECT jsonb_agg(to_jsonb(recent)) FROM (
-      SELECT id::text AS id, amount, created_at FROM public.car_bids WHERE car_id=c.id AND bidder_id=auth.uid() ORDER BY created_at DESC,id DESC LIMIT 5
+      SELECT b.id::text AS id, b.amount, b.created_at FROM public.car_bids b WHERE b.car_id=c.id AND b.bidder_id=auth.uid() ORDER BY b.created_at DESC,b.id DESC LIMIT 5
     ) recent), '[]'::jsonb)) INTO v_result FROM public.cars c WHERE c.id=p_car_id AND c.listing_type IS DISTINCT FROM 'buy_now_only';
   IF v_result IS NULL THEN RAISE EXCEPTION 'Auction not found.' USING ERRCODE = 'P0002'; END IF;
   RETURN v_result;
@@ -74,9 +88,9 @@ BEGIN
     + v_increment, coalesce(v_car.reserve_price, 0)));
   IF p_amount < v_min THEN RAISE EXCEPTION 'Bid must be at least Rs %. Refresh and review the new price.', v_min USING ERRCODE = '22023'; END IF;
 
-  INSERT INTO public.car_bids(car_id, bidder_id, bidder_name, bidder_role, amount, request_id, created_at)
+  INSERT INTO public.car_bids(car_id, bidder_id, bidder_name, bidder_role, amount, request_id, created_at, is_custom)
     VALUES (p_car_id, auth.uid(), coalesce(nullif(v_profile.business_name, ''), nullif(v_profile.full_name, ''), 'Dealer'),
-      'dealer', p_amount, p_request_id, v_now) RETURNING * INTO v_bid;
+      'dealer', p_amount, p_request_id, v_now, true) RETURNING * INTO v_bid;
   UPDATE public.cars SET current_bid_dealer = p_amount, highest_bidder_id_dealer = auth.uid(),
     highest_bidder_name_dealer = v_bid.bidder_name WHERE id = p_car_id;
   RETURN public.dealer_bid_receipt(p_request_id);
@@ -115,7 +129,7 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role = 'dealer' AND status = 'approved') THEN
     RAISE EXCEPTION 'Only approved dealers can access auctions.' USING ERRCODE = '42501';
   END IF;
-  IF p_tab NOT IN ('live', 'bids', 'watchlist', 'results') OR p_limit NOT BETWEEN 1 AND 100 OR p_offset < 0 THEN
+  IF p_tab IS NULL OR p_limit IS NULL OR p_offset IS NULL OR p_tab NOT IN ('live', 'bids', 'watchlist', 'results') OR p_limit NOT BETWEEN 1 AND 100 OR p_offset < 0 THEN
     RAISE EXCEPTION 'Invalid auction filters.' USING ERRCODE = '22023';
   END IF;
   WITH eligible AS (
@@ -154,13 +168,27 @@ BEGIN
     ORDER BY b.id DESC LIMIT least(greatest(p_limit, 1), 500);
 END $$;
 
--- Retire every legacy overload; older open tabs must reload after deployment.
+-- Retire unaudited overloads. Re-enable ONLY the reviewed two-argument signature
+-- as a compatibility wrapper; it cannot bypass the new server-side validation.
 DO $$ DECLARE v_function record;
 BEGIN
   FOR v_function IN SELECT oid::regprocedure AS signature FROM pg_proc
     WHERE pronamespace = 'public'::regnamespace AND proname = 'place_dealer_bid'
   LOOP EXECUTE format('REVOKE ALL ON FUNCTION %s FROM PUBLIC, anon, authenticated', v_function.signature); END LOOP;
 END $$;
+CREATE OR REPLACE FUNCTION public.place_dealer_bid(p_car_id uuid, p_amount numeric)
+RETURNS public.cars LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
+DECLARE v_receipt jsonb; v_car public.cars;
+BEGIN
+  -- The old frontend has no request-ID field. New frontend callers must use
+  -- place_dealer_bid_v2 and retain their request ID across ambiguous responses.
+  v_receipt := public.place_dealer_bid_v2(p_car_id, p_amount, pg_catalog.gen_random_uuid());
+  SELECT * INTO v_car FROM pg_catalog.jsonb_populate_record(NULL::public.cars, v_receipt -> 'car');
+  RETURN v_car;
+END $$;
+REVOKE ALL ON FUNCTION public.place_dealer_bid(uuid,numeric) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.place_dealer_bid(uuid,numeric) TO authenticated;
+
 REVOKE ALL ON FUNCTION public.place_dealer_bid_v2(uuid,numeric,uuid), public.dealer_bid_receipt(uuid),
   public.dealer_auction_snapshot(uuid), public.get_dealer_auction_dashboard(text,text,integer,integer),
   public.get_dealer_bid_audit(bigint,integer) FROM PUBLIC, anon;

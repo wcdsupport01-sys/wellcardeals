@@ -8,7 +8,7 @@ Buyer purchases remain on Buy Car. Approved dealers use `/dealer/dashboard` and
 - Live auctions, all participated cars, server-backed watchlists and results have
   separate views. Summary counts cover all matching database records; pages are
   24 cars, rather than deriving totals from the latest eight bids.
-- Dealer bids use `place_dealer_bid_v2` exclusively. It authenticates the caller,
+- The new dealer interface uses `place_dealer_bid_v2` exclusively. It authenticates the caller,
   locks their approval row and the car row, checks the database clock after
   waiting for locks, enforces whole-rupee amounts, the reserve floor and minimum
   increment, and commits the bid history and highest bidder together.
@@ -38,12 +38,16 @@ do not establish that these functions exist in the live Supabase project.
    Test the migration on a staging copy of the live schema first. Required
    existing tables are `profiles`, `cars`, `car_bids`, and `wishlist`; these come
    from the repository's existing migrations. Keep existing auth/RLS protections.
-2. During a short bidding maintenance window, run the complete contents of
+2. During a quiet bidding period, run the complete contents of
    `supabase/dealer_auction_v2_migration.sql` through the Supabase SQL Editor as
    the database owner. It runs in one transaction and is safe to rerun.
-3. Deploy this frontend revision immediately after the migration succeeds.
-   Older open tabs must reload: every overload of `place_dealer_bid` has browser
-   execution revoked. The new UI intentionally has no unsafe legacy fallback.
+3. Deploy this frontend revision after the migration succeeds. The reviewed
+   `place_dealer_bid(uuid,numeric) RETURNS cars` signature remains available as
+   a compatibility wrapper around v2. Existing live pages keep their response
+   shape and get the new validation, but do not gain request reconciliation until
+   refreshed onto the new frontend. Other legacy overloads remain revoked.
+   The new UI intentionally never falls back to generating request IDs on the
+   server; it always uses a client-retained key for safe reconciliation.
 4. With staging dealer accounts, test two competing bids and an interrupted
    response, verify the receipt/history, then check the staff CSV export. Do not
    create test bids against a real customer auction.
@@ -61,9 +65,12 @@ service-role maintenance remains privileged; retain database backups/audit logs.
 This version models one auction per car record. Preserve the original record
 when relisting; repeated rounds on one car need a separate auction-round model.
 
-Reverting only the frontend is insufficient after retiring the old RPC. Prefer
-a forward fix; any database rollback needs the reviewed, pre-upgrade function
-backup and must preserve already accepted v2 bids and their request IDs.
+A frontend rollback can use the compatibility wrapper, which still enforces the
+new bidding rules. Do not replace it with the old body merely to undo a UI change.
+Any database rollback needs the reviewed, pre-upgrade schema/function backup
+and must preserve already accepted v2 bids and their request IDs.
+The user's exported production function is retained in
+`docs/legacy-place-dealer-bid.sql` for review only; it is not a migration.
 
 ## Local validation
 
