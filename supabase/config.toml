@@ -27,3 +27,26 @@ verify_jwt = false
 
 [functions.send-access-code]
 verify_jwt = false
+
+[functions.reset-user-password]
+verify_jwt = false
+
+
+[functions.reset-agent-password]
+verify_jwt = false
+
+
+[functions.reset-dealer-password]
+verify_jwt = false
+
+
+[functions.create-staff-user]
+verify_jwt = false
+
+
+[functions.approve-dealer-application]
+verify_jwt = false
+
+
+[functions.dealer-login-lookup]
+verify_jwt = false

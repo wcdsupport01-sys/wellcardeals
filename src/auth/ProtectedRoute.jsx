@@ -1,6 +1,5 @@
-
 import { Navigate, useLocation } from "react-router-dom";
-import { useAuth } from "./AuthContext";
+import { useAuth, AuthRecovery } from "./AuthContext";
 import DealerPendingGate from "./DealerPendingGate";
 
 /**
@@ -20,8 +19,16 @@ export default function ProtectedRoute({
   unauthorizedPath = "/unauthorized",
   children,
 }) {
-  const { session, role: myRole, dealerStatus, loading } = useAuth();
+  const {
+    authError,
+    retryAuth,
+    session,
+    role: myRole,
+    dealerStatus,
+    loading,
+  } = useAuth();
   const location = useLocation();
+  if (authError) return <AuthRecovery retry={retryAuth} />;
 
   if (loading || session === undefined) {
     return (
@@ -32,13 +39,7 @@ export default function ProtectedRoute({
   }
 
   if (!session) {
-    return (
-      <Navigate
-        to={loginPath}
-        replace
-        state={{ from: location }}
-      />
-    );
+    return <Navigate to={loginPath} replace state={{ from: location }} />;
   }
 
   if (!allowedRoles?.includes(myRole)) {

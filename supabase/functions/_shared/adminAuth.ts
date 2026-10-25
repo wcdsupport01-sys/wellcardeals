@@ -14,18 +14,9 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 
-export const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-};
-
-export function jsonResponse(body: unknown, status = 200) {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
-  });
-}
+import { activeStaff, corsHeaders, jsonResponse } from "./http.ts";
+import { timedFetch } from "./requestTimeout.ts";
+export { corsHeaders, jsonResponse };
 
 // Thrown as a Response so the calling function can just do:
 //   try { const { admin } = await requireAdmin(req); } catch (r) { return r; }
@@ -47,10 +38,26 @@ export async function requireStaff(req: Request, allowedRoles: string[]) {
   const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
   const authHeader = req.headers.get("Authorization") || "";
+  if (!/^Bearer\s+\S+$/i.test(authHeader)) {
+    throw new AdminAuthError(JSON.stringify({ error: "Not authenticated." }), {
+      status: 401,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+  if (!SUPABASE_URL || !ANON_KEY || !SERVICE_ROLE_KEY) {
+    throw new AdminAuthError(
+      JSON.stringify({ error: "Authentication service is not configured." }),
+      {
+        status: 503,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      },
+    );
+  }
 
   // Step 1: verify the caller's own JWT (their real logged-in session).
   const callerClient = createClient(SUPABASE_URL, ANON_KEY, {
-    global: { headers: { Authorization: authHeader } },
+    global: { headers: { Authorization: authHeader }, fetch: timedFetch },
+    auth: { persistSession: false, autoRefreshToken: false },
   });
   const {
     data: { user },
@@ -66,26 +73,36 @@ export async function requireStaff(req: Request, allowedRoles: string[]) {
   // Step 2: service_role client — used both to check the role (bypassing
   // RLS is fine here, we're reading, not trusting the caller) and to do
   // the actual write afterwards.
-  const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
+  const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
+    global: { fetch: timedFetch },
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
 
-  const { data: profile } = await admin
+  const { data: profile, error: profileError } = await admin
     .from("profiles")
-    .select("id, role, status, full_name")
+    .select("*")
     .eq("id", user.id)
     .maybeSingle();
 
-  if (!profile || !allowedRoles.includes(profile.role)) {
-    throw new AdminAuthError(JSON.stringify({ error: "You don't have access to this action." }), {
-      status: 403,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+  if (profileError) {
+    throw new AdminAuthError(
+      JSON.stringify({
+        error: "Could not verify account access. Please retry.",
+      }),
+      {
+        status: 503,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      },
+    );
   }
-
-  if (profile.status === "suspended" || profile.status === "rejected") {
-    throw new AdminAuthError(JSON.stringify({ error: "Your account access has been revoked." }), {
-      status: 403,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+  if (!activeStaff(profile, allowedRoles)) {
+    throw new AdminAuthError(
+      JSON.stringify({ error: "You don't have access to this action." }),
+      {
+        status: 403,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      },
+    );
   }
 
   return { admin, user, profile };

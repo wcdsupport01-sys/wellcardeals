@@ -1,3 +1,5 @@
+import { accountPassword } from "../_shared/passwords.ts";
+import { readJson, uuid } from "../_shared/http.ts";
 // supabase/functions/reset-agent-password/index.ts
 // Admin-only. Body: { agentId: uuid, password?: string }
 //
@@ -14,12 +16,7 @@ import { requireAdmin, jsonResponse, corsHeaders, AdminAuthError } from "../_sha
 import { pushRowToSheetEnsuringTab } from "../_shared/googleSheet.ts";
 import { ADMIN_AUDIT_LOGS_TAB, ADMIN_AUDIT_LOGS_HEADERS } from "../_shared/sheetTabs.ts";
 
-function randomPassword(length = 10) {
-  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789";
-  let out = "";
-  for (let i = 0; i < length; i++) out += chars[Math.floor(Math.random() * chars.length)];
-  return out;
-}
+
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
@@ -27,7 +24,8 @@ Deno.serve(async (req: Request) => {
 
   try {
     const { admin, user, profile } = await requireAdmin(req);
-    const { agentId, password: customPassword } = await req.json();
+    const { agentId, password: customPassword } = await readJson(req);
+    uuid(agentId, "agentId");
 
     if (!agentId) return jsonResponse({ error: "agentId is required." }, 400);
 
@@ -42,11 +40,7 @@ Deno.serve(async (req: Request) => {
       return jsonResponse({ error: "This user is not an agent." }, 400);
     }
 
-    if (customPassword && customPassword.trim() && customPassword.trim().length < 6) {
-      return jsonResponse({ error: "Password must be at least 6 characters." }, 400);
-    }
-    const newPassword =
-      customPassword && customPassword.trim() ? customPassword.trim() : randomPassword(10);
+    const newPassword = accountPassword(customPassword);
 
     const { error: updateErr } = await admin.auth.admin.updateUserById(agentId, {
       password: newPassword,
@@ -70,7 +64,7 @@ Deno.serve(async (req: Request) => {
       password: newPassword,
     });
   } catch (err) {
-    if (err instanceof AdminAuthError) return err;
+    if (err instanceof Response) return err;
     console.error("reset-agent-password error:", err);
     return jsonResponse({ error: err instanceof Error ? err.message : "Unknown error" }, 500);
   }

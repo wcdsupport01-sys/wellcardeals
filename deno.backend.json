@@ -1,0 +1,8 @@
+{
+  "imports": {
+    "https://esm.sh/@supabase/supabase-js@2.45.4": "npm:@supabase/supabase-js@2.45.4"
+  },
+  "compilerOptions": { "lib": ["deno.window", "dom"] },
+  "nodeModulesDir": "none",
+  "lock": false
+}

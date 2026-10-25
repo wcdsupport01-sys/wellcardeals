@@ -1,3 +1,4 @@
+import { timedFetch } from "./requestTimeout.ts";
 // supabase/functions/_shared/googleSheet.ts
 // Best-effort row append to a Google Sheet tab. Never throws — a Sheet
 // outage should never block a car listing or a sold-marking from saving
@@ -86,7 +87,7 @@ async function getAccessToken(): Promise<string | null> {
   );
   const jwt = `${unsigned}.${base64url(signature)}`;
 
-  const res = await fetch("https://oauth2.googleapis.com/token", {
+  const res = await timedFetch("https://oauth2.googleapis.com/token", {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
@@ -128,7 +129,7 @@ async function ensureTabExists(tabName: string, headers: string[]): Promise<void
   if (!token || !GOOGLE_SHEET_ID) return;
 
   try {
-    const metaRes = await fetch(
+    const metaRes = await timedFetch(
       `https://sheets.googleapis.com/v4/spreadsheets/${GOOGLE_SHEET_ID}?fields=sheets.properties.title`,
       { headers: { Authorization: `Bearer ${token}` } }
     );
@@ -142,7 +143,7 @@ async function ensureTabExists(tabName: string, headers: string[]): Promise<void
       return;
     }
 
-    const addRes = await fetch(
+    const addRes = await timedFetch(
       `https://sheets.googleapis.com/v4/spreadsheets/${GOOGLE_SHEET_ID}:batchUpdate`,
       {
         method: "POST",
@@ -157,10 +158,10 @@ async function ensureTabExists(tabName: string, headers: string[]): Promise<void
       return; // best-effort — later append will just fail too, which is fine
     }
 
-    await fetch(
+    await timedFetch(
       `https://sheets.googleapis.com/v4/spreadsheets/${GOOGLE_SHEET_ID}/values/${encodeURIComponent(
         `${tabName}!A1`
-      )}?valueInputOption=USER_ENTERED`,
+      )}?valueInputOption=RAW`,
       {
         method: "PUT",
         headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
@@ -192,8 +193,8 @@ export async function pushRowToSheetBestEffort(tabName: string, row: (string | n
     const range = `${tabName}!A1`;
     const url = `https://sheets.googleapis.com/v4/spreadsheets/${GOOGLE_SHEET_ID}/values/${encodeURIComponent(
       range
-    )}:append?valueInputOption=USER_ENTERED`;
-    const res = await fetch(url, {
+    )}:append?valueInputOption=RAW`;
+    const res = await timedFetch(url, {
       method: "POST",
       headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
       body: JSON.stringify({ values: [row] }),

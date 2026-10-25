@@ -1,3 +1,5 @@
+import { validateCarInput } from "../_shared/carInput.ts";
+import { readJson, uuid } from "../_shared/http.ts";
 // supabase/functions/agent-add-car/index.ts
 // Agent-only. Body: { requestId: uuid, ...carPayload }
 // Verifies the request is actually assigned to the calling agent and not
@@ -19,7 +21,9 @@ Deno.serve(async (req: Request) => {
 
   try {
     const { admin, user, profile } = await requireAgent(req);
-    const { requestId, ...carPayload } = await req.json();
+    const { requestId, ...carPayload } = await readJson(req);
+    uuid(requestId, "requestId");
+    validateCarInput(carPayload, true);
 
     if (!requestId) return jsonResponse({ error: "requestId is required." }, 400);
     if (!carPayload || !carPayload.vehicle_title) {
@@ -46,12 +50,12 @@ Deno.serve(async (req: Request) => {
       return jsonResponse({ error: "Admin hasn't set a listing type (auction / buy now) yet." }, 400);
     }
 
-    const payload = {
+    const payload: Record<string, any> = {
       ...carPayload,
       listing_type: request.listing_type,
-      status: carPayload.status || "live",
-      visibility: carPayload.visibility || "visible",
-      channel: carPayload.channel || "buyer",
+      status: "live",
+      visibility: "visible",
+      channel: request.listing_type === "buy_now_only" ? "buyer" : "dealer",
     };
 
     // The listing cards / detail page read base_price_buyer / base_price_dealer
@@ -108,7 +112,7 @@ Deno.serve(async (req: Request) => {
 
     return jsonResponse({ data: car });
   } catch (err) {
-    if (err instanceof AgentAuthError) return err;
+    if (err instanceof Response) return err;
     console.error("agent-add-car error:", err);
     return jsonResponse({ error: err instanceof Error ? err.message : "Unknown error" }, 500);
   }

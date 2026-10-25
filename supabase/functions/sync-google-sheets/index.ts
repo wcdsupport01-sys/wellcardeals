@@ -1,3 +1,4 @@
+import { timedFetch } from "../_shared/requestTimeout.ts";
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 
@@ -137,7 +138,7 @@ async function googleAccessToken(): Promise<string> {
     new Uint8Array(signature)
   )}`;
 
-  const response = await fetch(
+  const response = await timedFetch(
     "https://oauth2.googleapis.com/token",
     {
       method: "POST",
@@ -223,7 +224,7 @@ async function sheetsRequest(
     let response: Response;
 
     try {
-      response = await fetch(url, {
+      response = await timedFetch(url, {
         method,
         headers: {
           Authorization: `Bearer ${token}`,

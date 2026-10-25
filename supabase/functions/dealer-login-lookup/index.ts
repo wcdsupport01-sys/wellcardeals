@@ -1,3 +1,5 @@
+import { timedFetch } from "../_shared/requestTimeout.ts";
+import { readJson, email, literalLike, corsHeaders, jsonResponse } from "../_shared/http.ts";
 // supabase/functions/dealer-login-lookup/index.ts
 // Public (no login required — the dealer isn't logged in yet). Body: { identifier }
 //
@@ -19,19 +21,6 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-};
-
-function jsonResponse(body: unknown, status = 200) {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
-  });
-}
-
 const DEALER_ID_PATTERN = /^DLR-\d{6,}$/i;
 
 Deno.serve(async (req: Request) => {
@@ -39,23 +28,24 @@ Deno.serve(async (req: Request) => {
   if (req.method !== "POST") return jsonResponse({ error: "POST only." }, 405);
 
   try {
-    const { identifier } = await req.json();
-    const value = String(identifier || "").trim();
+    const { identifier } = await readJson(req);
+    const value = typeof identifier === "string" && identifier.length <= 254 ? identifier.trim() : "";
     if (!value) return jsonResponse({ error: "Dealer ID or email is required." }, 400);
 
     const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
     const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
+    const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, { global: { fetch: timedFetch } });
 
     if (DEALER_ID_PATTERN.test(value)) {
       // Approved dealer path — look up by Dealer ID in profiles.
-      const { data: profile } = await admin
+      const { data: profile, error: profileError } = await admin
         .from("profiles")
         .select("email, status, dealer_id")
         .eq("dealer_id", value.toUpperCase())
         .eq("role", "dealer")
         .maybeSingle();
 
+      if (profileError) return jsonResponse({ error: "Dealer lookup is temporarily unavailable." }, 503);
       if (!profile) {
         return jsonResponse({ error: "No dealer account found for that Dealer ID." }, 404);
       }
@@ -64,14 +54,16 @@ Deno.serve(async (req: Request) => {
 
     // Otherwise treat it as an email — covers applicants who are pending
     // or rejected and don't have a Dealer ID yet.
-    const { data: application } = await admin
+    const normalizedEmail = email(value);
+    const { data: application, error: applicationError } = await admin
       .from("dealer_applications")
       .select("status, email, dealer_id")
-      .ilike("email", value)
+      .ilike("email", literalLike(normalizedEmail))
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle();
 
+    if (applicationError) return jsonResponse({ error: "Dealer lookup is temporarily unavailable." }, 503);
     if (!application) {
       return jsonResponse({ error: "No application or dealer account found for that identifier." }, 404);
     }
@@ -82,6 +74,7 @@ Deno.serve(async (req: Request) => {
       dealerId: application.dealer_id || null,
     });
   } catch (err) {
+    if (err instanceof Response) return err;
     console.error("dealer-login-lookup error:", err);
     return jsonResponse({ error: err instanceof Error ? err.message : "Unknown error" }, 500);
   }

@@ -4,12 +4,13 @@ import { supabase } from "../lib/supabaseClient";
 // Shared helpers
 // ---------------------------------------------------------------------------
 
-async function getProfile(userId) {
-  const { data, error } = await supabase
+async function getProfile(userId, signal) {
+  const query = supabase
     .from("profiles")
     .select("*")
     .eq("id", userId)
     .maybeSingle();
+  const { data, error } = await (signal ? query.abortSignal(signal) : query);
   if (error) throw error;
   return data;
 }
@@ -29,24 +30,38 @@ async function recordSignup() {
 // Buyer
 // ---------------------------------------------------------------------------
 export async function buyerSignUp({ email, password, fullName, phone }) {
-  const { data, error } = await supabase.auth.signUp({ email, password });
+  const { data, error } = await supabase.auth.signUp({
+    email,
+    password,
+    options: {
+      data: {
+        full_name: typeof fullName === "string" ? fullName : "",
+        phone: typeof phone === "string" ? phone : "",
+      },
+    },
+  });
   if (error) {
     console.error("Error in buyerSignUp:", error.message);
     throw error;
   }
   const user = data.user;
+  if (!user) throw new Error("Account could not be created.");
+  if (!data.session) return { user, session: null };
 
-  const { error: profileError } = await supabase.from("profiles").insert({
-    id: user.id,
-    role: "buyer",
-    email,
-    full_name: fullName || null,
-    phone: phone || null,
-  });
+  const { error: profileError } = await supabase.from("profiles").upsert(
+    {
+      id: user.id,
+      role: "buyer",
+      email,
+      full_name: fullName || null,
+      phone: phone || null,
+    },
+    { onConflict: "id", ignoreDuplicates: true },
+  );
   if (profileError) {
     console.error("Error creating buyer profile:", profileError.message);
     throw new Error(
-      `Account was created but profile setup failed (${profileError.message}). Please contact support.`
+      `Account was created but profile setup failed (${profileError.message}). Please contact support.`,
     );
   }
 
@@ -55,7 +70,10 @@ export async function buyerSignUp({ email, password, fullName, phone }) {
 }
 
 export async function buyerSignIn({ email, password }) {
-  const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+  const { data, error } = await supabase.auth.signInWithPassword({
+    email,
+    password,
+  });
   if (error) {
     console.error("Error in buyerSignIn:", error.message);
     throw error;
@@ -73,7 +91,7 @@ export async function buyerSignIn({ email, password }) {
     throw new Error(
       profile.role === "admin"
         ? "This is an admin account. Please use the admin login instead."
-        : "This is a dealer account. Please use the dealer login instead."
+        : "This is a dealer account. Please use the dealer login instead.",
     );
   }
 
@@ -81,7 +99,9 @@ export async function buyerSignIn({ email, password }) {
 }
 
 export async function buyerSignInWithGoogle() {
-  const { data, error } = await supabase.auth.signInWithOAuth({ provider: "google" });
+  const { data, error } = await supabase.auth.signInWithOAuth({
+    provider: "google",
+  });
   if (error) {
     console.error("Error in buyerSignInWithGoogle:", error.message);
     throw error;
@@ -111,22 +131,27 @@ export async function updatePassword(newPassword) {
 // Ensures a Google sign-in still gets a buyer profile row. Call this once
 // after a session appears with no matching profiles row (AuthContext does
 // this automatically).
-export async function ensureBuyerProfile(user) {
+export async function ensureBuyerProfile(user, signal) {
   if (!user) return;
-  try {
-    const existing = await getProfile(user.id);
-    if (existing) return;
-
-    const { error } = await supabase.from("profiles").insert({
-      id: user.id,
-      role: "buyer",
-      email: user.email || null,
-      full_name: user.user_metadata?.full_name || user.user_metadata?.name || null,
-    });
-    if (error) throw error;
-  } catch (error) {
-    console.error("Error in ensureBuyerProfile:", error.message);
-  }
+  const existing = await getProfile(user.id, signal);
+  if (existing) return;
+  const insert = supabase.from("profiles").insert({
+    id: user.id,
+    role: user.user_metadata?.signup_role === "dealer" ? "dealer" : "buyer",
+    status:
+      user.user_metadata?.signup_role === "dealer" ? "pending" : "approved",
+    business_name:
+      user.user_metadata?.signup_role === "dealer"
+        ? user.user_metadata?.business_name || null
+        : null,
+    email: user.email || null,
+    full_name:
+      user.user_metadata?.full_name || user.user_metadata?.name || null,
+    phone: user.user_metadata?.phone || null,
+  });
+  const { error } = await (signal ? insert.abortSignal(signal) : insert);
+  // Another signup callback may have created the profile concurrently.
+  if (error && error.code !== "23505") throw error;
 }
 
 // ---------------------------------------------------------------------------
@@ -134,21 +159,47 @@ export async function ensureBuyerProfile(user) {
 // profiles row based on role. Waits for both to finish before resolving, so
 // callers never navigate/render before the profile exists.
 // ---------------------------------------------------------------------------
-export async function signUpUser({ role, email, password, fullName, phone, businessName }) {
+export async function signUpUser({
+  role,
+  email,
+  password,
+  fullName,
+  phone,
+  businessName,
+}) {
   if (role !== "buyer" && role !== "dealer") {
     throw new Error(`signUpUser: unsupported role "${role}"`);
   }
 
-  const { data, error } = await supabase.auth.signUp({ email, password });
+  const { data, error } = await supabase.auth.signUp({
+    email,
+    password,
+    options: {
+      data: {
+        signup_role: role,
+        business_name: typeof businessName === "string" ? businessName : "",
+        full_name: typeof fullName === "string" ? fullName : "",
+        phone: typeof phone === "string" ? phone : "",
+      },
+    },
+  });
   if (error) {
     console.error("Error creating auth user:", error.message);
     throw error;
   }
   const user = data.user;
+  if (!user) throw new Error("Account could not be created.");
+  if (!data.session) return { user, session: null };
 
   const row =
     role === "buyer"
-      ? { id: user.id, role: "buyer", email, full_name: fullName || null, phone: phone || null }
+      ? {
+          id: user.id,
+          role: "buyer",
+          email,
+          full_name: fullName || null,
+          phone: phone || null,
+        }
       : {
           id: user.id,
           role: "dealer",
@@ -157,11 +208,13 @@ export async function signUpUser({ role, email, password, fullName, phone, busin
           status: "pending",
         };
 
-  const { error: profileError } = await supabase.from("profiles").upsert(row, { onConflict: "id" });
+  const { error: profileError } = await supabase
+    .from("profiles")
+    .upsert(row, { onConflict: "id" });
   if (profileError) {
     console.error(`Error creating ${role} profile row:`, profileError.message);
     throw new Error(
-      `Account was created but profile setup failed (${profileError.message}). Please contact support.`
+      `Account was created but profile setup failed (${profileError.message}). Please contact support.`,
     );
   }
 
@@ -207,7 +260,11 @@ export async function submitDealerApplication({
     throw error;
   }
 
-  return { business_name: businessName?.trim(), dealer_name: dealerName?.trim(), email: email?.trim() };
+  return {
+    business_name: businessName?.trim(),
+    dealer_name: dealerName?.trim(),
+    email: email?.trim(),
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -251,9 +308,12 @@ export async function setDealerApplicationStatus(id, status) {
 // temp password, marks the application approved, and emails the dealer
 // their Dealer ID + temp password + login link.
 export async function approveDealerApplication(id) {
-  const { data, error } = await supabase.functions.invoke("approve-dealer-application", {
-    body: { applicationId: id },
-  });
+  const { data, error } = await supabase.functions.invoke(
+    "approve-dealer-application",
+    {
+      body: { applicationId: id },
+    },
+  );
   if (error) {
     console.error("Error in approveDealerApplication:", error.message);
     throw error;
@@ -286,7 +346,9 @@ export async function dealerRegister({ email, password, profile, files }) {
       .from("dealer-docs")
       .upload(path, file, { upsert: true });
     if (uploadError) throw uploadError;
-    const { data: urlData } = supabase.storage.from("dealer-docs").getPublicUrl(path);
+    const { data: urlData } = supabase.storage
+      .from("dealer-docs")
+      .getPublicUrl(path);
     return urlData.publicUrl;
   }
 
@@ -314,9 +376,8 @@ export async function dealerRegister({ email, password, profile, files }) {
         profile_image_url: profileImageUrl,
         business_logo_url: businessLogoUrl,
         status: "pending",
-        ...profile,
       },
-      { onConflict: "id" }
+      { onConflict: "id" },
     );
     if (profileError) throw profileError;
   } catch (err) {
@@ -336,12 +397,17 @@ export async function dealerRegister({ email, password, profile, files }) {
 // password. See dealer-login-lookup/index.ts.
 // ---------------------------------------------------------------------------
 export async function dealerLoginLookup(identifier) {
-  const { data, error } = await supabase.functions.invoke("dealer-login-lookup", {
-    body: { identifier: String(identifier || "").trim() },
-  });
+  const { data, error } = await supabase.functions.invoke(
+    "dealer-login-lookup",
+    {
+      body: { identifier: String(identifier || "").trim() },
+    },
+  );
   if (error) {
     console.error("Error in dealerLoginLookup:", error.message);
-    throw new Error("Couldn't look up that Dealer ID / email. Please try again.");
+    throw new Error(
+      "Couldn't look up that Dealer ID / email. Please try again.",
+    );
   }
   if (data?.error) {
     throw new Error(data.error);
@@ -360,10 +426,14 @@ export async function dealerSignInWithIdentifier({ identifier, password }) {
     throw new Error("Your dealer application is still under review.");
   }
   if (lookup.status === "rejected") {
-    throw new Error("Your dealer application was rejected. Contact support for details.");
+    throw new Error(
+      "Your dealer application was rejected. Contact support for details.",
+    );
   }
   if (lookup.status !== "approved") {
-    throw new Error(`Your dealer account is ${lookup.status}. Contact support for help.`);
+    throw new Error(
+      `Your dealer account is ${lookup.status}. Contact support for help.`,
+    );
   }
 
   const { data, error } = await supabase.auth.signInWithPassword({
@@ -383,7 +453,9 @@ export async function dealerSignInWithIdentifier({ identifier, password }) {
   }
   if (dealerRow.status !== "approved") {
     await supabase.auth.signOut();
-    throw new Error(`Your dealer account is ${dealerRow.status}. Contact support for help.`);
+    throw new Error(
+      `Your dealer account is ${dealerRow.status}. Contact support for help.`,
+    );
   }
 
   return {
@@ -404,9 +476,12 @@ export async function dealerSignInWithIdentifier({ identifier, password }) {
 // in the response — it is never stored anywhere — so copy/share it with
 // the dealer immediately.
 export async function resetDealerPassword(dealerId, customPassword) {
-  const { data, error } = await supabase.functions.invoke("reset-dealer-password", {
-    body: { dealerId, password: customPassword || undefined },
-  });
+  const { data, error } = await supabase.functions.invoke(
+    "reset-dealer-password",
+    {
+      body: { dealerId, password: customPassword || undefined },
+    },
+  );
   if (error) {
     console.error("Error in resetDealerPassword:", error.message);
     throw error;
@@ -418,7 +493,10 @@ export async function resetDealerPassword(dealerId, customPassword) {
 }
 
 export async function dealerSignIn({ email, password }) {
-  const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+  const { data, error } = await supabase.auth.signInWithPassword({
+    email,
+    password,
+  });
   if (error) {
     console.error("Error in dealerSignIn:", error.message);
     throw error;
@@ -437,7 +515,7 @@ export async function dealerSignIn({ email, password }) {
     throw new Error(
       dealerRow.status === "pending"
         ? "Your dealer account is still pending admin approval."
-        : `Your dealer account is ${dealerRow.status}. Contact support for help.`
+        : `Your dealer account is ${dealerRow.status}. Contact support for help.`,
     );
   }
 
@@ -456,7 +534,10 @@ const AGENT_EMAIL_DOMAIN = "agents.wellcardeals.internal";
 
 export async function agentSignIn({ agentCode, password }) {
   const email = `${agentCode.trim().toLowerCase()}@${AGENT_EMAIL_DOMAIN}`;
-  const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+  const { data, error } = await supabase.auth.signInWithPassword({
+    email,
+    password,
+  });
   if (error) {
     console.error("Error in agentSignIn:", error.message);
     throw new Error("Invalid agent ID or password.");
@@ -472,7 +553,9 @@ export async function agentSignIn({ agentCode, password }) {
 
   if (agentRow.status !== "approved") {
     await supabase.auth.signOut();
-    throw new Error(`Your agent account is ${agentRow.status}. Contact admin for help.`);
+    throw new Error(
+      `Your agent account is ${agentRow.status}. Contact admin for help.`,
+    );
   }
 
   return { user, session: data.session, profile: agentRow };
@@ -527,7 +610,10 @@ export async function regenerateDealerManualCode(dealerId) {
 // Admin action: approve a dealer AND immediately generate + send them a
 // fresh 6-digit access code by SMS + WhatsApp (from +91 9540102163 via
 // Twilio). Call this instead of a plain status update when approving.
-export async function approveDealerAndSendCode(dealerId, { channel = "both" } = {}) {
+export async function approveDealerAndSendCode(
+  dealerId,
+  { channel = "both" } = {},
+) {
   const { error: statusError } = await supabase
     .from("profiles")
     .update({ status: "approved" })
@@ -537,24 +623,27 @@ export async function approveDealerAndSendCode(dealerId, { channel = "both" } = 
     throw statusError;
   }
 
-  const { error: rpcError } = await supabase.rpc("generate_dealer_access_code", {
-    p_dealer_id: dealerId,
-  });
+  const { error: rpcError } = await supabase.rpc(
+    "generate_dealer_access_code",
+    {
+      p_dealer_id: dealerId,
+    },
+  );
   if (rpcError) {
     console.error("Error generating dealer access code:", rpcError.message);
     throw new Error(
-      `Dealer approved, but generating the access code failed (${rpcError.message}).`
+      `Dealer approved, but generating the access code failed (${rpcError.message}).`,
     );
   }
 
   const { data: sendData, error: sendError } = await supabase.functions.invoke(
     "send-access-code",
-    { body: { dealerId, channel } }
+    { body: { dealerId, channel } },
   );
   if (sendError) {
     console.error("Error sending dealer access code:", sendError.message);
     throw new Error(
-      `Dealer approved and code generated, but sending it by SMS/WhatsApp failed (${sendError.message}). Use "Resend code" to try again.`
+      `Dealer approved and code generated, but sending it by SMS/WhatsApp failed (${sendError.message}). Use "Resend code" to try again.`,
     );
   }
 
@@ -563,11 +652,17 @@ export async function approveDealerAndSendCode(dealerId, { channel = "both" } = 
 
 // Admin action: re-send (or send for the first time) the current access
 // code to an already-approved dealer, e.g. if they lost the SMS/WhatsApp.
-export async function resendDealerAccessCode(dealerId, { channel = "both", regenerate = true } = {}) {
+export async function resendDealerAccessCode(
+  dealerId,
+  { channel = "both", regenerate = true } = {},
+) {
   if (regenerate) {
-    const { error: rpcError } = await supabase.rpc("generate_dealer_access_code", {
-      p_dealer_id: dealerId,
-    });
+    const { error: rpcError } = await supabase.rpc(
+      "generate_dealer_access_code",
+      {
+        p_dealer_id: dealerId,
+      },
+    );
     if (rpcError) throw rpcError;
   }
 
@@ -600,7 +695,10 @@ export async function verifyDealerAccessCode(code) {
 const STAFF_ROLES = ["admin", "manager", "team_lead"];
 
 export async function adminSignIn({ email, password }) {
-  const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+  const { data, error } = await supabase.auth.signInWithPassword({
+    email,
+    password,
+  });
   if (error) {
     console.error("Error in adminSignIn:", error.message);
     throw error;
@@ -632,9 +730,12 @@ export async function adminSignIn({ email, password }) {
 // returned exactly once in the response — it is never stored anywhere —
 // so copy/share it with the person immediately.
 export async function resetUserPassword(userId, customPassword) {
-  const { data, error } = await supabase.functions.invoke("reset-user-password", {
-    body: { userId, password: customPassword || undefined },
-  });
+  const { data, error } = await supabase.functions.invoke(
+    "reset-user-password",
+    {
+      body: { userId, password: customPassword || undefined },
+    },
+  );
   if (error) {
     console.error("Error in resetUserPassword:", error.message);
     throw error;

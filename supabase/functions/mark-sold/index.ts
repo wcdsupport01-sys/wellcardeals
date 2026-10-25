@@ -1,3 +1,4 @@
+import { readJson, uuid } from "../_shared/http.ts";
 // supabase/functions/mark-sold/index.ts
 // Admin-only. Body: { carId: uuid, role: "buyer" | "dealer" }
 // Marks the winning track sold on `cars`, and best-effort pushes the
@@ -20,7 +21,8 @@ Deno.serve(async (req: Request) => {
 
   try {
     const { admin } = await requireStaff(req, ["admin", "manager"]);
-    const { carId, role } = await req.json();
+    const { carId, role } = await readJson(req);
+    uuid(carId, "carId");
     if (!carId || !role || !["buyer", "dealer"].includes(role)) {
       return jsonResponse({ error: "carId and role ('buyer'|'dealer') are required." }, 400);
     }
@@ -31,6 +33,14 @@ Deno.serve(async (req: Request) => {
     const bidderId = role === "dealer" ? car.highest_bidder_id_dealer : car.highest_bidder_id_buyer;
     const bidderName = role === "dealer" ? car.highest_bidder_name_dealer : car.highest_bidder_name_buyer;
     const amount = role === "dealer" ? car.current_bid_dealer : car.current_bid_buyer;
+
+    const soldField = role === "dealer" ? "dealer_winner_marked_sold" : "buyer_winner_marked_sold";
+    const soldAtField = role === "dealer" ? "dealer_winner_marked_sold_at" : "buyer_winner_marked_sold_at";
+    if (car.status === "sold") {
+      return car[soldField] ? jsonResponse({ data: car, alreadyConfirmed: true }) : jsonResponse({ error: "This car was already sold on another track." }, 409);
+    }
+    if (!bidderId || !Number.isFinite(Number(amount)) || Number(amount) <= 0) return jsonResponse({ error: "A verified buyer/dealer and final amount are required." }, 409);
+    if (role === "dealer" && (!car.auction_end || !Number.isFinite(Date.parse(car.auction_end)) || Date.parse(car.auction_end) > Date.now() || car.status !== "live")) return jsonResponse({ error: "Wait until the live auction closes before confirming the highest bidder." }, 409);
 
     let phone = "";
     let email = "";
@@ -44,17 +54,19 @@ Deno.serve(async (req: Request) => {
       email = bidderProfile?.email || "";
     }
 
-    const soldField = role === "dealer" ? "dealer_winner_marked_sold" : "buyer_winner_marked_sold";
-    const soldAtField = role === "dealer" ? "dealer_winner_marked_sold_at" : "buyer_winner_marked_sold_at";
     const nowIso = new Date().toISOString();
 
     const { data, error } = await admin
       .from("cars")
       .update({ [soldField]: true, [soldAtField]: nowIso, status: "sold" })
       .eq("id", carId)
+      .eq("status", car.status)
+      .eq(role === "dealer" ? "highest_bidder_id_dealer" : "highest_bidder_id_buyer", bidderId)
+      .eq(role === "dealer" ? "current_bid_dealer" : "current_bid_buyer", amount)
       .select()
-      .single();
+      .maybeSingle();
     if (error) return jsonResponse({ error: error.message }, 400);
+    if (!data) return jsonResponse({ error: "Auction standing changed. Refresh and review the sale again." }, 409);
 
     await pushRowToSheetBestEffort(WINNERS_TAB, [
       nowIso,
@@ -94,7 +106,7 @@ Deno.serve(async (req: Request) => {
 
     return jsonResponse({ data });
   } catch (err) {
-    if (err instanceof AdminAuthError) return err;
+    if (err instanceof Response) return err;
     console.error("mark-sold error:", err);
     return jsonResponse({ error: err instanceof Error ? err.message : "Unknown error" }, 500);
   }

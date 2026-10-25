@@ -983,11 +983,6 @@ function PriceModal({ car, bidCount, saving, onClose, onSave }) {
       }
     }
 
-    if (!bidCount) {
-      payload.current_bid_buyer = payload.base_price_buyer;
-      payload.current_bid_dealer = payload.base_price_dealer;
-    }
-
     onSave(payload);
   }
 

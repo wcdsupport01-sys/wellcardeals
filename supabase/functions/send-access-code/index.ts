@@ -1,3 +1,6 @@
+import { requireStaff } from "../_shared/adminAuth.ts";
+import { timedFetch } from "../_shared/requestTimeout.ts";
+import { readJson, uuid, corsHeaders, jsonResponse } from "../_shared/http.ts";
 // supabase/functions/send-access-code/index.ts
 //
 // Sends a dealer's access code by SMS and/or WhatsApp via Twilio, from the
@@ -21,26 +24,11 @@
 // it looks up the dealer's phone + code itself using the service role key,
 // so the frontend never needs to know the code or the dealer's raw number.
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 
-const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
-const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const TWILIO_ACCOUNT_SID = Deno.env.get("TWILIO_ACCOUNT_SID")!;
 const TWILIO_AUTH_TOKEN = Deno.env.get("TWILIO_AUTH_TOKEN")!;
 const TWILIO_FROM_SMS = Deno.env.get("TWILIO_FROM_SMS") || "+919540102163";
 const TWILIO_FROM_WHATSAPP = Deno.env.get("TWILIO_FROM_WHATSAPP") || "whatsapp:+919540102163";
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
-
-function jsonResponse(body: unknown, status = 200) {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
-  });
-}
 
 // Normalizes an Indian 10-digit number (or one already prefixed) to E.164.
 function toE164India(raw: string): string {
@@ -56,7 +44,7 @@ async function sendTwilioMessage(to: string, from: string, body: string) {
   const auth = btoa(`${TWILIO_ACCOUNT_SID}:${TWILIO_AUTH_TOKEN}`);
   const params = new URLSearchParams({ To: to, From: from, Body: body });
 
-  const res = await fetch(url, {
+  const res = await timedFetch(url, {
     method: "POST",
     headers: {
       Authorization: `Basic ${auth}`,
@@ -74,31 +62,14 @@ async function sendTwilioMessage(to: string, from: string, body: string) {
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+  if (req.method !== "POST") return jsonResponse({ error: "POST only." }, 405);
 
   try {
-    const authHeader = req.headers.get("Authorization") || "";
-    const callerClient = createClient(SUPABASE_URL, Deno.env.get("SUPABASE_ANON_KEY")!, {
-      global: { headers: { Authorization: authHeader } },
-    });
+    const { admin } = await requireStaff(req, ["admin", "manager"]);
 
-    const {
-      data: { user },
-    } = await callerClient.auth.getUser();
-    if (!user) return jsonResponse({ error: "Not authenticated." }, 401);
-
-    const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
-
-    const { data: callerProfile } = await admin
-      .from("profiles")
-      .select("role")
-      .eq("id", user.id)
-      .maybeSingle();
-
-    if (!callerProfile || !["admin", "manager"].includes(callerProfile.role)) {
-      return jsonResponse({ error: "Only an admin can send dealer access codes." }, 403);
-    }
-
-    const { dealerId, channel = "both" } = await req.json();
+    const { dealerId, channel = "both" } = await readJson(req);
+    uuid(dealerId, "dealerId");
+    if (!["sms", "whatsapp", "both"].includes(channel)) return jsonResponse({ error: "Invalid delivery channel." }, 400);
     if (!dealerId) return jsonResponse({ error: "dealerId is required." }, 400);
 
     const { data: dealer, error: dealerErr } = await admin
@@ -133,6 +104,7 @@ Deno.serve(async (req: Request) => {
 
     return jsonResponse({ ok: true, to, results });
   } catch (err) {
+    if (err instanceof Response) return err;
     console.error("send-access-code error:", err);
     return jsonResponse({ error: err instanceof Error ? err.message : "Unknown error" }, 500);
   }

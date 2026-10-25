@@ -1,3 +1,5 @@
+import { accountPassword } from "../_shared/passwords.ts";
+import { readJson, text } from "../_shared/http.ts";
 // supabase/functions/create-staff-user/index.ts
 // Admin-only. Body: { fullName: string, email: string, phone?: string, role: "admin"|"manager"|"team_lead", password?: string }
 //
@@ -16,12 +18,7 @@ import { STAFF_DIRECTORY_TAB, STAFF_DIRECTORY_HEADERS } from "../_shared/sheetTa
 
 const CREATABLE_ROLES = new Set(["admin", "manager", "team_lead"]);
 
-function randomPassword(length = 12) {
-  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%";
-  let out = "";
-  for (let i = 0; i < length; i++) out += chars[Math.floor(Math.random() * chars.length)];
-  return out;
-}
+
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
@@ -29,11 +26,14 @@ Deno.serve(async (req: Request) => {
 
   try {
     const { admin, user, profile } = await requireAdmin(req);
-    const { fullName, email, phone, role, password: customPassword } = await req.json();
+    const { fullName, email, phone, role, password: customPassword } = await readJson(req);
 
+    text(fullName, "fullName");
+    if (phone != null) text(phone, "phone", 40, false);
     if (!fullName || !fullName.trim()) {
       return jsonResponse({ error: "fullName is required." }, 400);
     }
+    text(email, "email", 254);
     if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
       return jsonResponse({ error: "A valid email is required." }, 400);
     }
@@ -41,10 +41,7 @@ Deno.serve(async (req: Request) => {
       return jsonResponse({ error: "role must be one of: admin, manager, team_lead." }, 400);
     }
 
-    if (customPassword && customPassword.trim() && customPassword.trim().length < 6) {
-      return jsonResponse({ error: "Password must be at least 6 characters." }, 400);
-    }
-    const password = customPassword && customPassword.trim() ? customPassword.trim() : randomPassword(12);
+    const password = accountPassword(customPassword);
     const normalizedEmail = email.trim().toLowerCase();
 
     const { data: created, error: createErr } = await admin.auth.admin.createUser({
@@ -56,14 +53,14 @@ Deno.serve(async (req: Request) => {
       return jsonResponse({ error: createErr?.message || "Couldn't create the login." }, 400);
     }
 
-    const { error: profileErr } = await admin.from("profiles").insert({
+    const { error: profileErr } = await admin.from("profiles").upsert({
       id: created.user.id,
       role,
       email: normalizedEmail,
       full_name: fullName.trim(),
       phone: phone || null,
       status: "approved",
-    });
+    }, { onConflict: "id" });
     if (profileErr) {
       // Roll back the auth user so we don't leave an orphaned login.
       await admin.auth.admin.deleteUser(created.user.id);
@@ -90,7 +87,7 @@ Deno.serve(async (req: Request) => {
 
     return jsonResponse({ email: normalizedEmail, password, fullName: fullName.trim(), role });
   } catch (err) {
-    if (err instanceof AdminAuthError) return err;
+    if (err instanceof Response) return err;
     console.error("create-staff-user error:", err);
     return jsonResponse({ error: err instanceof Error ? err.message : "Unknown error" }, 500);
   }

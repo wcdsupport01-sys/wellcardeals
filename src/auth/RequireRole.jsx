@@ -1,5 +1,5 @@
 import { Navigate, useLocation } from "react-router-dom";
-import { useAuth } from "./AuthContext";
+import { useAuth, AuthRecovery } from "./AuthContext";
 
 /**
  * Enforces portal isolation.
@@ -10,8 +10,17 @@ import { useAuth } from "./AuthContext";
  *   instead of the dashboard.
  */
 export default function RequireRole({ role, loginPath, children }) {
-  const { session, role: myRole, dealerStatus, dealerAccessCodeVerified, loading } = useAuth();
+  const {
+    authError,
+    retryAuth,
+    session,
+    role: myRole,
+    dealerStatus,
+    dealerAccessCodeVerified,
+    loading,
+  } = useAuth();
   const location = useLocation();
+  if (authError) return <AuthRecovery retry={retryAuth} />;
 
   if (loading || session === undefined) {
     return (
@@ -28,7 +37,12 @@ export default function RequireRole({ role, loginPath, children }) {
   if (myRole !== role) {
     // Signed in, but as the wrong kind of account — send them home rather
     // than leaking that this page even exists.
-    const fallback = myRole === "admin" ? "/admin" : myRole === "dealer" ? "/dealer/dashboard" : "/";
+    const fallback =
+      myRole === "admin"
+        ? "/admin"
+        : myRole === "dealer"
+          ? "/dealer/dashboard"
+          : "/";
     return <Navigate to={fallback} replace />;
   }
 
@@ -36,7 +50,10 @@ export default function RequireRole({ role, loginPath, children }) {
     if (dealerStatus !== "approved") {
       return <Navigate to="/dealer/pending" replace />;
     }
-    if (!dealerAccessCodeVerified && location.pathname !== "/dealer/verify-code") {
+    if (
+      !dealerAccessCodeVerified &&
+      location.pathname !== "/dealer/verify-code"
+    ) {
       return <Navigate to="/dealer/verify-code" replace />;
     }
   }

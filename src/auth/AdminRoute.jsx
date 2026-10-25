@@ -1,5 +1,5 @@
 import { Navigate, useLocation } from "react-router-dom";
-import { useAuth } from "./AuthContext";
+import { useAuth, AuthRecovery } from "./AuthContext";
 
 // The three roles that share the /admin portal shell. Exactly what each one
 // can see/do inside that shell is then filtered by exact role — in
@@ -28,8 +28,9 @@ export const STAFF_ROLES = ["admin", "manager", "team_lead"];
  *                                   exists to them)
  */
 export default function AdminRoute({ children }) {
-  const { session, role, loading } = useAuth();
+  const { authError, retryAuth, session, role, loading } = useAuth();
   const location = useLocation();
+  if (authError) return <AuthRecovery retry={retryAuth} />;
 
   if (loading || session === undefined) {
     return (

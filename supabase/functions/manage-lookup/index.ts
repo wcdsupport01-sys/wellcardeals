@@ -1,3 +1,4 @@
+import { readJson } from "../_shared/http.ts";
 // supabase/functions/manage-lookup/index.ts
 // Admin-only. Covers insert/delete for every dropdown/lookup table so
 // ManageLookupsPage keeps working once RLS write access is revoked.
@@ -27,7 +28,7 @@ Deno.serve(async (req: Request) => {
 
   try {
     const { admin } = await requireStaff(req, ["admin", "manager"]);
-    const { action, table, values, id } = await req.json();
+    const { action, table, values, id } = await readJson(req);
 
     if (!ALLOWED_TABLES.has(table)) {
       return jsonResponse({ error: `Table "${table}" is not allowed.` }, 400);
@@ -51,7 +52,7 @@ Deno.serve(async (req: Request) => {
 
     return jsonResponse({ error: "action must be 'insert' or 'delete'." }, 400);
   } catch (err) {
-    if (err instanceof AdminAuthError) return err;
+    if (err instanceof Response) return err;
     console.error("manage-lookup error:", err);
     return jsonResponse({ error: err instanceof Error ? err.message : "Unknown error" }, 500);
   }

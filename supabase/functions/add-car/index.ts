@@ -1,3 +1,5 @@
+import { validateCarInput } from "../_shared/carInput.ts";
+import { readJson, InputError } from "../_shared/http.ts";
 // supabase/functions/add-car/index.ts
 // Admin-only. Replaces the old direct `supabase.from("cars").insert(...)`
 // call from the anon key. Also best-effort pushes every new listing to the
@@ -15,36 +17,31 @@ Deno.serve(async (req: Request) => {
 
   try {
     const { admin, user } = await requireStaff(req, ["admin", "manager"]);
-    const payload = await req.json();
+    const payload = await readJson(req);
+    validateCarInput(payload, true);
 
     if (!payload || typeof payload !== "object" || !payload.vehicle_title) {
       return jsonResponse({ error: "vehicle_title is required." }, 400);
     }
 
+    if (payload.inspection != null && (typeof payload.inspection !== "object" || Array.isArray(payload.inspection))) throw new InputError("inspection must be an object.");
     // Same as agent-add-car: the listing cards / detail page read
     // base_price_buyer / base_price_dealer (and current_bid_buyer/dealer),
     // not buy_now_price / starting_bid directly. Populate them here so the
     // price actually shows instead of "—". Only fill in fields the caller
     // didn't already set explicitly.
-    if (payload.base_price_buyer == null && payload.base_price_dealer == null) {
-      const basePrice =
-        payload.listing_type === "buy_now_only"
-          ? payload.buy_now_price
-          : payload.starting_bid ?? payload.reserve_price;
-      if (basePrice != null) {
-        payload.base_price_buyer = basePrice;
-        payload.base_price_dealer = basePrice;
-        payload.current_bid_buyer = basePrice;
-        payload.current_bid_dealer = basePrice;
-      }
-    }
+    const basePrice = payload.listing_type === "buy_now_only" ? payload.buy_now_price : payload.starting_bid ?? payload.reserve_price;
+    payload.base_price_buyer ??= basePrice;
+    payload.base_price_dealer ??= basePrice;
+    payload.current_bid_buyer = payload.base_price_buyer;
+    payload.current_bid_dealer = payload.base_price_dealer;
 
     // Server-side stamp, not client-supplied — RealCarDetail.jsx's
     // "Inspected on <date>" line has to be trustworthy, so the timestamp
     // and who-did-it always come from this request's own auth, never from
     // whatever the browser sent.
     const hasRealInspection =
-      payload.inspection && Object.values(payload.inspection).some((v) => v && v.status);
+      payload.inspection && Object.values(payload.inspection as Record<string, { status?: string }>).some((v) => v && v.status);
     if (hasRealInspection) {
       payload.inspected_by = user.id;
       payload.inspected_at = new Date().toISOString();
@@ -112,7 +109,7 @@ Deno.serve(async (req: Request) => {
 
     return jsonResponse({ data });
   } catch (err) {
-    if (err instanceof AdminAuthError) return err;
+    if (err instanceof Response) return err;
     console.error("add-car error:", err);
     return jsonResponse({ error: err instanceof Error ? err.message : "Unknown error" }, 500);
   }

@@ -1,3 +1,5 @@
+import { randomPassword as generateTempPassword } from "../_shared/passwords.ts";
+import { readJson, uuid, escapeHtml } from "../_shared/http.ts";
 // supabase/functions/approve-dealer-application/index.ts
 // Admin/manager-only. Body: { applicationId: uuid }
 //
@@ -29,17 +31,9 @@ const FROM_EMAIL = Deno.env.get("DEALER_EMAIL_FROM") || "WellCarDeal <no-reply@w
 
 // Avoids visually-ambiguous characters (0/O, 1/l/I) since this gets typed
 // by hand off an email/SMS at least once.
-const PASSWORD_CHARS = "ABCDEFGHJKMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789";
 
-function generateTempPassword(length = 10): string {
-  const bytes = new Uint8Array(length);
-  crypto.getRandomValues(bytes);
-  let out = "";
-  for (let i = 0; i < length; i++) {
-    out += PASSWORD_CHARS[bytes[i] % PASSWORD_CHARS.length];
-  }
-  return out;
-}
+
+
 
 async function sendDealerCredentialsEmail(opts: {
   to: string;
@@ -56,10 +50,10 @@ async function sendDealerCredentialsEmail(opts: {
   const html = `
     <div style="font-family: Arial, sans-serif; max-width: 480px; margin: 0 auto; color: #111827;">
       <h2 style="margin-bottom: 4px;">Your dealer account is approved</h2>
-      <p style="color: #4B5563;">Hi ${opts.dealerName}, ${opts.businessName} has been approved on WellCarDeal.</p>
+      <p style="color: #4B5563;">Hi ${escapeHtml(opts.dealerName)}, ${escapeHtml(opts.businessName)} has been approved on WellCarDeal.</p>
       <div style="background: #F3F4F6; border-radius: 12px; padding: 16px 20px; margin: 20px 0;">
-        <p style="margin: 4px 0;"><strong>Dealer ID:</strong> ${opts.dealerId}</p>
-        <p style="margin: 4px 0;"><strong>Temporary Password:</strong> ${opts.tempPassword}</p>
+        <p style="margin: 4px 0;"><strong>Dealer ID:</strong> ${escapeHtml(opts.dealerId)}</p>
+        <p style="margin: 4px 0;"><strong>Temporary Password:</strong> ${escapeHtml(opts.tempPassword)}</p>
       </div>
       <p><a href="${LOGIN_URL}" style="background:#1E4FD9;color:#fff;padding:10px 18px;border-radius:8px;text-decoration:none;display:inline-block;">Log in now</a></p>
       <p style="color: #6B7280; font-size: 13px; margin-top: 20px;">
@@ -99,7 +93,8 @@ Deno.serve(async (req: Request) => {
 
   try {
     const { admin } = await requireStaff(req, ["admin", "manager"]);
-    const { applicationId } = await req.json();
+    const { applicationId } = await readJson(req);
+    uuid(applicationId, "applicationId");
     if (!applicationId) return jsonResponse({ error: "applicationId is required." }, 400);
 
     const { data: application, error: appErr } = await admin
@@ -122,7 +117,7 @@ Deno.serve(async (req: Request) => {
     }
 
     // 2. Temp password
-    const tempPassword = generateTempPassword(10);
+    const tempPassword = generateTempPassword(16);
 
     // 3. Create (or reuse, if this email already has an auth account) the
     //    dealer's login.
@@ -137,23 +132,10 @@ Deno.serve(async (req: Request) => {
       },
     });
 
-    if (createErr) {
-      // Most common case: this email already has an auth account (e.g. a
-      // re-applied dealer). Look it up instead of failing outright.
-      const { data: existingList } = await admin.auth.admin.listUsers();
-      const existing = existingList?.users?.find(
-        (u: { email?: string }) => u.email?.toLowerCase() === application.email.toLowerCase()
-      );
-      if (!existing) {
-        return jsonResponse({ error: createErr.message }, 400);
-      }
-      authUserId = existing.id;
-      // Reset their password to the new temp one so the emailed credentials
-      // actually work.
-      await admin.auth.admin.updateUserById(authUserId, { password: tempPassword });
-    } else {
-      authUserId = created.user.id;
+    if (createErr || !created?.user) {
+      return jsonResponse({ error: "Could not create a new dealer login. If this email already has an account, review that account separately; it has not been changed." }, 409);
     }
+    authUserId = created.user.id;
 
     // 4. profiles row
     const { error: profileErr } = await admin.from("profiles").upsert(
@@ -169,7 +151,11 @@ Deno.serve(async (req: Request) => {
       },
       { onConflict: "id" }
     );
-    if (profileErr) return jsonResponse({ error: profileErr.message }, 400);
+    if (profileErr) {
+      const { error: cleanupError } = await admin.auth.admin.deleteUser(authUserId);
+      if (cleanupError) console.error("Dealer provisioning cleanup requires review", authUserId);
+      return jsonResponse({ error: "Dealer profile could not be saved. Review this application before retrying." }, 503);
+    }
 
     // 5. dealer_applications row
     const { data: updatedApp, error: updateErr } = await admin
@@ -191,7 +177,7 @@ Deno.serve(async (req: Request) => {
 
     return jsonResponse({ ok: true, ...updatedApp, emailResult });
   } catch (err) {
-    if (err instanceof AdminAuthError) return err;
+    if (err instanceof Response) return err;
     console.error("approve-dealer-application error:", err);
     return jsonResponse({ error: err instanceof Error ? err.message : "Unknown error" }, 500);
   }

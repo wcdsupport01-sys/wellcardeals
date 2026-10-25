@@ -1,3 +1,5 @@
+import { validateCarInput, auctionTermsChanged } from "../_shared/carInput.ts";
+import { readJson, InputError, uuid } from "../_shared/http.ts";
 // supabase/functions/update-car/index.ts
 // Admin-only. Body: { id: uuid, ...fieldsToUpdate }
 // If the update touches negotiation_status/notes/price, also best-effort
@@ -22,18 +24,21 @@ Deno.serve(async (req: Request) => {
 
   try {
     const { admin, user, profile } = await requireStaff(req, ["admin", "manager"]);
-    const { id, ...payload } = await req.json();
+    const { id, ...payload } = await readJson(req);
+    uuid(id, "id");
+    validateCarInput(payload);
 
     if (!id) return jsonResponse({ error: "id is required." }, 400);
     if (Object.keys(payload).length === 0) {
       return jsonResponse({ error: "No fields to update." }, 400);
     }
 
+    if (payload.inspection != null && (typeof payload.inspection !== "object" || Array.isArray(payload.inspection))) throw new InputError("inspection must be an object.");
     // Same reasoning as add-car: never trust a client-supplied
     // inspected_by/inspected_at, always derive from this request's own
     // verified session.
     if ("inspection" in payload) {
-      const hasRealInspection = Object.values(payload.inspection || {}).some((v) => v && v.status);
+      const hasRealInspection = Object.values((payload.inspection || {}) as Record<string, { status?: string }>).some((v) => v && v.status);
       payload.inspected_by = hasRealInspection ? user.id : null;
       payload.inspected_at = hasRealInspection ? new Date().toISOString() : null;
     }
@@ -47,10 +52,29 @@ Deno.serve(async (req: Request) => {
 
     // Fetch the row BEFORE updating so the audit log can show a meaningful
     // "previous_status -> new_status" (and which fields actually changed).
-    const { data: before } = await admin.from("cars").select("*").eq("id", id).maybeSingle();
+    const { data: before, error: readError } = await admin.from("cars").select("*").eq("id", id).maybeSingle();
 
-    const { data, error } = await admin.from("cars").update(payload).eq("id", id).select().single();
+    if (readError) return jsonResponse({ error: "Could not verify the current listing." }, 503);
+    if (!before) return jsonResponse({ error: "Car not found." }, 404);
+    const changesTerms = auctionTermsChanged(payload, before);
+    if (changesTerms) {
+      const { count, error: bidsError } = await admin.from("car_bids").select("id", { count: "exact", head: true }).eq("car_id", id);
+      if (bidsError) return jsonResponse({ error: "Could not verify bid history." }, 503);
+      if (count || before.highest_bidder_id_dealer || before.highest_bidder_id_buyer) return jsonResponse({ error: "Auction terms cannot change after bids exist. Preserve this auction and create a new listing." }, 409);
+      if ("base_price_dealer" in payload) payload.current_bid_dealer = payload.base_price_dealer;
+      if ("base_price_buyer" in payload) payload.current_bid_buyer = payload.base_price_buyer;
+    }
+    let mutation = admin.from("cars").update(payload).eq("id", id);
+    if (changesTerms) {
+      // The UPDATE rechecks these predicates after waiting for any concurrent
+      // bid transaction. A bid arriving after the count cannot be overwritten.
+      for (const field of ["current_bid_dealer", "current_bid_buyer", "highest_bidder_id_dealer", "highest_bidder_id_buyer"]) {
+        mutation = before[field] == null ? mutation.is(field, null) : mutation.eq(field, before[field]);
+      }
+    }
+    const { data, error } = await mutation.select().maybeSingle();
     if (error) return jsonResponse({ error: error.message }, 400);
+    if (!data) return jsonResponse({ error: "Listing changed while you were editing. Refresh and review it again." }, 409);
 
     const touchesNegotiation = NEGOTIATION_FIELDS.some((f) => f in payload);
     if (touchesNegotiation) {
@@ -126,7 +150,7 @@ Deno.serve(async (req: Request) => {
 
     return jsonResponse({ data });
   } catch (err) {
-    if (err instanceof AdminAuthError) return err;
+    if (err instanceof Response) return err;
     console.error("update-car error:", err);
     return jsonResponse({ error: err instanceof Error ? err.message : "Unknown error" }, 500);
   }

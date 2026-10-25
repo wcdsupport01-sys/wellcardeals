@@ -53,7 +53,7 @@ export default function BuyerSignup() {
   }
 
   return (
-    <AuthCard title="Create Buyer Account" subtitle="Bid on live vehicle auctions.">
+    <AuthCard title="Create Buyer Account" subtitle="Browse cars and manage your buy and sell requests.">
       {error && (
         <div className="mb-4 flex items-center gap-2 rounded-xl bg-red-50 border border-red-200 text-red-600 text-sm px-4 py-2.5">
           <AlertCircle size={16} /> {error}

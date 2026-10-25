@@ -4,6 +4,7 @@
 // someone push arbitrary rows), and is entirely best-effort: it never
 // throws in a way that would block the signup flow.
 // Deploy: supabase functions deploy record-signup
+import { timedFetch } from "../_shared/requestTimeout.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { pushRowToSheetBestEffort } from "../_shared/googleSheet.ts";
 
@@ -17,6 +18,7 @@ const SIGNUPS_TAB = Deno.env.get("GOOGLE_SHEET_SIGNUPS_TAB") || "Signups";
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+  if (req.method !== "POST") return new Response(null, { status: 405, headers: corsHeaders });
 
   try {
     const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -25,14 +27,14 @@ Deno.serve(async (req: Request) => {
 
     const authHeader = req.headers.get("Authorization") || "";
     const callerClient = createClient(SUPABASE_URL, ANON_KEY, {
-      global: { headers: { Authorization: authHeader } },
+      global: { headers: { Authorization: authHeader }, fetch: timedFetch },
     });
     const {
       data: { user },
     } = await callerClient.auth.getUser();
     if (!user) return new Response(JSON.stringify({ error: "Not authenticated." }), { status: 401, headers: corsHeaders });
 
-    const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
+    const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, { global: { fetch: timedFetch } });
     const { data: profile } = await admin
       .from("profiles")
       .select("id, role, email, full_name, phone, business_name, status, created_at")

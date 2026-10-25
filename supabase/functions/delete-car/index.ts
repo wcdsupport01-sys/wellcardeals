@@ -1,3 +1,4 @@
+import { readJson, uuid } from "../_shared/http.ts";
 // supabase/functions/delete-car/index.ts
 // Admin-only. Body: { id: uuid }
 // Deploy: supabase functions deploy delete-car
@@ -13,15 +14,18 @@ Deno.serve(async (req: Request) => {
     // trail still exist, it's just pulled from every marketplace view.
     // Actually destroying a listing is an ADMIN "override everything" action.
     const { admin } = await requireStaff(req, ["admin"]);
-    const { id } = await req.json();
+    const { id } = await readJson(req);
+    uuid(id, "id");
     if (!id) return jsonResponse({ error: "id is required." }, 400);
 
-    const { error } = await admin.from("cars").delete().eq("id", id);
+    const { data, error } = await admin.from("cars").delete().eq("id", id).select("id");
+    if (error?.code === "23503") return jsonResponse({ error: "This car has linked history. Archive or delist it instead." }, 409);
     if (error) return jsonResponse({ error: error.message }, 400);
+    if (!data?.length) return jsonResponse({ error: "Car not found." }, 404);
 
     return jsonResponse({ ok: true });
   } catch (err) {
-    if (err instanceof AdminAuthError) return err;
+    if (err instanceof Response) return err;
     console.error("delete-car error:", err);
     return jsonResponse({ error: err instanceof Error ? err.message : "Unknown error" }, 500);
   }
