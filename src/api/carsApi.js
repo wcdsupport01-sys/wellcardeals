@@ -21,7 +21,7 @@ export async function fetchAuctionCars(
 
   let query = db
     .from("cars")
-    .select("*, fuel_types(name), transmissions(name)")
+    .select("*, fuel_types(name), transmissions(name), body_types(name), brands(name), models(name)")
     .order("created_at", { ascending: false });
 
   if (status) {

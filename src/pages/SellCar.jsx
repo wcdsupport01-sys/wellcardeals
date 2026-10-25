@@ -233,6 +233,9 @@ export default function SellCar() {
     setLooking(true);
     try {
       const details = await lookupByRegistrationNumber(form.registration_number);
+      if (details._demo) {
+        throw new Error("Demo vehicle details cannot be used. Please enter details manually from your RC document.");
+      }
       setForm((f) => ({
         ...f,
         registration_number: details.registration_number,
@@ -444,6 +447,7 @@ export default function SellCar() {
                 {looking ? "Fetching…" : "Get Details"}
               </button>
             </div>
+            <p className="text-xs text-amber-700 mt-1.5">Automatic registration lookup is currently unavailable. Enter your vehicle details manually from your RC document.</p>
             {lookupMsg && <p className="text-xs text-emerald-600 mt-1.5">{lookupMsg}</p>}
             {lookupError && <p className="text-xs text-red-500 mt-1.5">{lookupError}</p>}
           </section>

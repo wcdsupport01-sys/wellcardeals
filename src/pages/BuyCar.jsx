@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { ShoppingCart, Search, MapPin, IndianRupee, SlidersHorizontal, X } from "lucide-react";
 import AuctionGrid from "../components/AuctionGrid";
 
@@ -11,16 +12,31 @@ const BUDGETS = [
 ];
 
 export default function BuyCar() {
-  const [search, setSearch] = useState("");
-  const [maxPrice, setMaxPrice] = useState("");
+  const [params, setParams] = useSearchParams();
+  const search = params.get("q") || "";
+  const brand = params.get("brand") || "";
+  const city = params.get("location") || "";
+  const bodyType = params.get("bodyType") || "";
+  const budget = params.get("budget") || "";
+  const maxPrice = /^\d+(\.\d+)?$/.test(budget) && Number(budget) > 0 ? budget : "";
+
+  function updateFilter(name, value) {
+    setParams((current) => {
+      const next = new URLSearchParams(current);
+      if (value) next.set(name, value);
+      else next.delete(name);
+      return next;
+    }, { replace: true });
+  }
+  const setSearch = (value) => updateFilter("q", value);
+  const setMaxPrice = (value) => updateFilter("budget", value);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [resultsCount, setResultsCount] = useState(null);
 
-  const activeFilterCount = (maxPrice ? 1 : 0);
+  const activeFilterCount = [search, maxPrice, brand, city, bodyType].filter(Boolean).length;
 
   function clearAll() {
-    setSearch("");
-    setMaxPrice("");
+    setParams({});
   }
 
   return (
@@ -82,6 +98,12 @@ export default function BuyCar() {
         </div>
       </div>
 
+      {activeFilterCount > 0 && (
+        <p className="text-sm text-gray-600 mb-4" aria-live="polite">
+          Active filters: {[search, brand, bodyType, city, maxPrice && `Up to ₹${Number(maxPrice).toLocaleString("en-IN")}`].filter(Boolean).join(" · ")}
+        </p>
+      )}
+
       {/* Results bar */}
       <div className="flex items-center justify-between mb-4 pb-3 border-b border-gray-100">
         <p className="text-xs sm:text-sm text-gray-500">
@@ -97,7 +119,7 @@ export default function BuyCar() {
       </div>
 
       {/* Grid — full width now; filters live in the drawer/panel above */}
-      <AuctionGrid   mode="buy_now"   filters={{ search, maxPrice }}   onResultsCount={setResultsCount} />
+      <AuctionGrid   mode="buy_now"   filters={{ search, maxPrice, brands: brand ? [brand] : [], city, bodyType }}   onResultsCount={setResultsCount} />
 
       <div className="mt-10 sm:mt-14 flex items-center gap-3 border border-gray-200 rounded-2xl px-4 sm:px-6 py-4 sm:py-5 bg-[#DCEAFB]">
         <ShoppingCart size={20} className="text-[#1E6FD9] shrink-0" />
@@ -123,12 +145,27 @@ export default function BuyCar() {
 
             {/* Location */}
             <div className="mb-5">
-              <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Location</label>
+              <label htmlFor="filter-location" className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Location</label>
               <div className="mt-2 flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-xl px-3 py-2.5">
                 <MapPin size={16} className="text-gray-400 shrink-0" />
-                <span className="text-sm text-gray-700 font-medium">Delhi</span>
+                <input id="filter-location" value={city} onChange={(e) => updateFilter("location", e.target.value)} placeholder="All locations" className="w-full bg-transparent text-sm outline-none" />
               </div>
             </div>
+
+            <div className="grid grid-cols-2 gap-3 mb-5">
+              <label className="text-sm">Brand
+                <input value={brand} onChange={(e) => updateFilter("brand", e.target.value)} placeholder="All brands" className="input mt-2" />
+              </label>
+              <label className="text-sm">Body type
+                <select value={bodyType} onChange={(e) => updateFilter("bodyType", e.target.value)} className="input mt-2">
+                  <option value="">All Cars</option>
+                  <option>Sedan</option><option>SUV</option><option>Hatchback</option>
+                </select>
+              </label>
+            </div>
+            <label className="block text-sm mb-4">Maximum price (₹)
+              <input type="number" min="0" value={maxPrice} onChange={(e) => setMaxPrice(e.target.value)} className="input mt-2" placeholder="Any budget" />
+            </label>
 
             {/* Budget */}
             <div className="mb-2">

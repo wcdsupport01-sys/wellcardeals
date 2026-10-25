@@ -94,6 +94,7 @@ const Home = () => {
     e.preventDefault();
     const params = new URLSearchParams();
     if (brand) params.set("brand", brand);
+    if (lookingFor !== "All Cars") params.set("bodyType", lookingFor);
     if (budget) params.set("budget", budget);
     if (location) params.set("location", location);
     navigate(`/buy-car${params.toString() ? `?${params.toString()}` : ""}`);
@@ -258,7 +259,7 @@ const Home = () => {
                 onChange={(e) => setBrand(e.target.value)}
                 className="w-full bg-[#132B61] border border-[#28488D] rounded-lg px-2.5 py-2 text-white text-xs focus:outline-none"
               >
-                <option>Select Brand</option>
+                <option value="">Select Brand</option>
                 <option>Maruti</option>
                 <option>Hyundai</option>
                 <option>Honda</option>
@@ -273,7 +274,10 @@ const Home = () => {
               <input
                 value={budget}
                 onChange={(e) => setBudget(e.target.value)}
-                placeholder="Min Price - Max Price"
+                type="number"
+                min="0"
+                step="10000"
+                placeholder="Maximum price (₹)"
                 className="w-full bg-[#132B61] border border-[#28488D] rounded-lg px-2.5 py-2 text-white placeholder:text-slate-400 text-xs focus:outline-none"
               />
             </div>

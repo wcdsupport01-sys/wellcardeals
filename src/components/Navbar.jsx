@@ -116,7 +116,7 @@ const Navbar = () => {
 
           {/* Desktop Right Side: loading / guest / authenticated */}
           <div className="hidden lg:flex items-center gap-3">
-            {!loading && user && (
+            {!loading && user && role === "buyer" && (
               <>
                 <Link
                   to="/buyer/saved-cars"
@@ -131,7 +131,7 @@ const Navbar = () => {
                   title="Notifications"
                 >
                   <Bell size={19} />
-                  <span className="absolute top-2 right-2.5 h-1.5 w-1.5 rounded-full bg-accent" />
+
                 </Link>
               </>
             )}

@@ -29,6 +29,7 @@ const PORTAL_NAV = [
   { to: "/buyer/orders", label: "My Orders", icon: Package },
   { to: "/buyer/saved-cars", label: "Saved Cars", icon: Heart },
   { to: "/buyer/messages", label: "Messages", icon: MessageSquare },
+  { to: "/buyer/notifications", label: "Notifications", icon: Bell },
   { to: "/buyer/profile", label: "Profile", icon: User },
   { to: "/buyer/settings", label: "Settings", icon: Settings },
   { to: "/buyer/help", label: "Help & Support", icon: HelpCircle },
@@ -176,6 +177,7 @@ export default function BuyerLayout() {
                   type="button"
                   className="relative text-gray-500 hover:text-navy-900 transition"
                   aria-label="Notifications"
+                  onClick={() => navigate("/buyer/notifications")}
                 >
                   <Bell size={20} />
                 </button>

@@ -72,21 +72,29 @@ const AuctionGrid = ({
   const visibleCars = modeCars.filter((car) => {
     if (!filters) return true;
 
-    const price = isApprovedDealer
+    const basePrice = isApprovedDealer
       ? car.base_price_dealer
       : car.base_price_buyer;
+    const price = car.listing_type === "buy_now_only"
+      ? car.buy_now_price ?? basePrice
+      : basePrice;
 
     if (filters.search) {
       const q = filters.search.trim().toLowerCase();
 
       const haystack = `
         ${car.vehicle_title || ""}
-        ${car.brand || ""}
-        ${car.model || ""}
+        ${car.brand || car.brands?.name || ""}
+        ${car.model || car.models?.name || ""}
         ${car.location || ""}
       `.toLowerCase();
 
       if (!haystack.includes(q)) return false;
+    }
+
+    if (filters.bodyType) {
+      const bodyType = car.body_types?.name || car.body_type || "";
+      if (bodyType.toLowerCase() !== filters.bodyType.toLowerCase()) return false;
     }
 
     if (filters.city) {
@@ -109,6 +117,7 @@ const AuctionGrid = ({
     if (filters.brands && filters.brands.length > 0) {
       const brand = (
         car.brand ||
+        car.brands?.name ||
         car.vehicle_title ||
         ""
       ).toLowerCase();

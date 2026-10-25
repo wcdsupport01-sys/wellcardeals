@@ -3,6 +3,8 @@ import Home from "./pages/Home";
 import About from "./pages/About";
 import Services from "./pages/Services";
 import Contact from "./pages/Contact";
+import { PrivacyPolicy, TermsOfService } from "./pages/LegalPages";
+import NotificationsPage from "./pages/buyer/NotificationsPage";
 import LiveAuctions from "./pages/LiveAuctions";
 import RealCarDetail from "./pages/RealCarDetail";
 import BuyCar from "./pages/BuyCar";
@@ -120,6 +122,8 @@ function PublicSite() {
           />
           <Route path="/cars/:id" element={<RealCarDetail />} />
           <Route path="/contact" element={<Contact />} />
+          <Route path="/privacy-policy" element={<PrivacyPolicy />} />
+          <Route path="/terms" element={<TermsOfService />} />
         </Routes>
       </div>
       <Footer />
@@ -154,6 +158,7 @@ function App() {
             <Route path="orders" element={<OrdersPage />} />
             <Route path="saved-cars" element={<SavedCarsPage />} />
             <Route path="messages" element={<MessagesPage />} />
+            <Route path="notifications" element={<NotificationsPage />} />
             <Route path="profile" element={<ProfilePage />} />
             <Route path="settings" element={<SettingsPage />} />
             <Route path="help" element={<HelpSupportPage />} />
