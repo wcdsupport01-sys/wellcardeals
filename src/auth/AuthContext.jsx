@@ -1,3 +1,4 @@
+import { resolveProfileMedia } from "../lib/privateMedia";
 import { createContext, useContext, useEffect, useState, useRef } from "react";
 import { supabase } from "../lib/supabaseClient";
 import { buyerSignInWithGoogle, ensureBuyerProfile } from "./authApi";
@@ -8,7 +9,7 @@ export const AuthProvider = ({ children }) => {
   const [state, setState] = useState(initialAuthState);
   const session = useRef(null);
   useEffect(() => {
-    const controller = startAuthSession(supabase, setState, ensureBuyerProfile);
+    const controller = startAuthSession(supabase, setState, ensureBuyerProfile, profile => resolveProfileMedia(supabase, profile, import.meta.env.VITE_SUPABASE_URL));
     session.current = controller;
     const refresh = () => controller.refresh?.();
     window.addEventListener("online", refresh);

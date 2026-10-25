@@ -1,3 +1,5 @@
+import { readPages } from "../../lib/readPages";
+import { backendCommand } from "../../lib/backendCommands";
 import { supabase, isSupabaseConfigured } from "../../lib/supabaseClient";
 
 function requireSupabase() {
@@ -81,7 +83,11 @@ export async function addFeature(category, name) {
 // ---------------------------------------------------------------------------
 export async function uploadCarFile(file, folder = "misc") {
   const ext = file.name.split(".").pop();
-  const path = `${folder}/${crypto.randomUUID()}.${ext}`;
+  const { data: { user }, error: authError } = await requireSupabase().auth.getUser();
+  if (authError || !user) throw authError || new Error("Sign in before uploading.");
+  const allowed = ["image/jpeg", "image/png", "image/webp", "video/mp4", "video/webm", "application/pdf"];
+  if (!allowed.includes(file.type) || file.size > 104857600) throw new Error("Use an image, PDF or MP4/WebM file up to 100 MB.");
+  const path = `${user.id}/${folder}/${crypto.randomUUID()}.${ext}`;
 
   const { error } = await requireSupabase().storage.from("car-media").upload(path, file);
   if (error) throw error;
@@ -105,38 +111,28 @@ export async function uploadManyCarFiles(files, folder) {
 // through Edge Functions that verify the caller is an admin, then write
 // with the service_role key.
 export async function createCar(payload) {
-  const { data, error } = await requireSupabase().functions.invoke("add-car", { body: payload });
-  if (error) throw error;
-  if (data?.error) throw new Error(data.error);
-  return data.data;
+  return (await backendCommand("create", { fields: payload })).car;
 }
 
 export async function updateCar(id, payload) {
-  const { data, error } = await requireSupabase().functions.invoke("update-car", {
-    body: { id, ...payload },
-  });
-  if (error) throw error;
-  if (data?.error) throw new Error(data.error);
-  return data.data;
+  return (await backendCommand("update", { id, fields: payload })).car;
 }
 
 export async function deleteCar(id) {
-  const { data, error } = await requireSupabase().functions.invoke("delete-car", { body: { id } });
-  if (error) throw error;
-  if (data?.error) throw new Error(data.error);
+  await backendCommand("archive", { id });
 }
 
 export async function fetchCarById(id) {
-  const { data, error } = await requireSupabase().from("cars").select("*").eq("id", id).single();
+  const { data, error } = await requireSupabase().from("cars_catalog").select("*").eq("id", id).single();
   if (error) throw error;
   return data;
 }
 
 export async function fetchCars({ status, channel } = {}) {
-  let q = requireSupabase().from("cars").select("*").order("created_at", { ascending: false });
-  if (status) q = q.eq("status", status);
-  if (channel) q = q.eq("channel", channel);
-  const { data, error } = await q;
-  if (error) throw error;
-  return data;
+  return readPages(() => {
+    let q = requireSupabase().from("cars_catalog").select("*", {count:"exact"});
+    if (status) q=q.eq("status",status);
+    if (channel) q=q.eq("channel",channel);
+    return q;
+  });
 }

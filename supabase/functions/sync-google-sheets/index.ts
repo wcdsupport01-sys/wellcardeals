@@ -1,3 +1,4 @@
+import { sheetRow } from "../_shared/sheetRow.ts";
 import { timedFetch } from "../_shared/requestTimeout.ts";
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
@@ -14,7 +15,7 @@ const GOOGLE_PRIVATE_KEY = (
 ).replace(/\\n/g, "\n");
 const SYNC_SECRET = Deno.env.get("SHEET_SYNC_SECRET") || "";
 
-const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
+const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, { global: { fetch: timedFetch }, auth: { persistSession:false, autoRefreshToken:false } });
 
 type Payload = Record<string, unknown>;
 
@@ -27,6 +28,7 @@ type QueueRecord = {
 };
 
 const HEADERS: Record<string, string[]> = {
+  Sales_Log: ["timestamp","car_id","buyer_details","final_sale_price","sale_type","closing_date","commission_margin"],
   Cars_Master: [
     "timestamp",
     "car_id",
@@ -63,13 +65,11 @@ const HEADERS: Record<string, string[]> = {
 };
 
 const ID_COLUMNS: Record<string, string> = {
+  Sales_Log: "car_id",
   Cars_Master: "car_id",
   Agents_Directory: "agent_id",
   Admin_Audit_Logs: "sync_queue_id",
 };
-
-const sleep = (ms: number) =>
-  new Promise((resolve) => setTimeout(resolve, ms));
 
 function base64url(input: Uint8Array | string): string {
   const bytes =
@@ -181,97 +181,15 @@ function sheetRange(tab: string, range: string): string {
   return `'${tab.replace(/'/g, "''")}'!${range}`;
 }
 
-function valueToString(value: unknown): string {
-  if (value === null || value === undefined) return "";
-  if (typeof value === "object") return JSON.stringify(value);
-  return String(value);
-}
-
-function rowValues(record: QueueRecord): string[] {
-  const tab = record.sheet_tab;
-  const payload =
-    record.payload &&
-    typeof record.payload === "object" &&
-    !Array.isArray(record.payload)
-      ? record.payload
-      : {};
-
-  return HEADERS[tab].map((column) => {
-    if (column === "sync_queue_id") {
-      return String(record.id);
-    }
-
-    if (
-      column === ID_COLUMNS[tab] &&
-      (payload[column] === null ||
-        payload[column] === undefined ||
-        payload[column] === "")
-    ) {
-      return String(record.row_key);
-    }
-
-    return valueToString(payload[column]);
-  });
-}
-
 async function sheetsRequest(
   token: string,
   url: string,
   method = "GET",
   body?: unknown
 ): Promise<any> {
-  for (let attempt = 0; attempt < 4; attempt++) {
-    let response: Response;
-
-    try {
-      response = await timedFetch(url, {
-        method,
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
-        ...(body === undefined
-          ? {}
-          : { body: JSON.stringify(body) }),
-      });
-    } catch (error) {
-      if (attempt === 3) throw error;
-      await sleep(1000 * 2 ** attempt);
-      continue;
-    }
-
-    if (response.ok) {
-      const text = await response.text();
-      return text ? JSON.parse(text) : {};
-    }
-
-    const details = await response.text();
-
-    if (
-      (response.status === 429 || response.status >= 500) &&
-      attempt < 3
-    ) {
-      const retryAfter = Number(
-        response.headers.get("retry-after")
-      );
-
-      const delay =
-        Number.isFinite(retryAfter) && retryAfter > 0
-          ? retryAfter * 1000
-          : 2000 * 2 ** attempt;
-
-      await sleep(Math.min(delay, 30000));
-      continue;
-    }
-
-    throw new Error(
-      `Google Sheets API ${response.status}: ${
-        details.slice(0, 500)
-      }`
-    );
-  }
-
-  throw new Error("Google Sheets request retries exhausted");
+  const response = await timedFetch(url, { method, headers: { Authorization:`Bearer ${token}`, "Content-Type":"application/json" }, ...(body===undefined?{}:{body:JSON.stringify(body)}) });
+  if (!response.ok) throw new Error(`Google Sheets API ${response.status}; pending queue record will retry.`);
+  const text = await response.text(); return text ? JSON.parse(text) : {};
 }
 
 async function prepareTabs(
@@ -303,20 +221,6 @@ async function prepareTabs(
     });
   }
 
-  // One API write request for all required headers.
-  await sheetsRequest(
-    token,
-    `${base}/values:batchUpdate`,
-    "POST",
-    {
-      valueInputOption: "RAW",
-      data: tabs.map((tab) => ({
-        range: sheetRange(tab, "A1"),
-        values: [HEADERS[tab]],
-      })),
-    }
-  );
-
   // One API read request for all required tabs.
   const params = new URLSearchParams();
 
@@ -335,6 +239,14 @@ async function prepareTabs(
     output[tab] = result.valueRanges?.[index]?.values || [];
   });
 
+  for (const tab of tabs) {
+    const header = output[tab]?.[0];
+    if (header?.length && (!header.includes(ID_COLUMNS[tab]) || new Set(header).size!==header.length)) throw new Error(`Sheet ${tab} needs a unique ${ID_COLUMNS[tab]} header. Existing headers were preserved.`);
+    if (!header?.length) {
+      await sheetsRequest(token, `${base}/values:batchUpdate`, "POST", { valueInputOption:"RAW", data:[{range:sheetRange(tab,"A1"),values:[HEADERS[tab]]}] });
+      output[tab]=[HEADERS[tab]];
+    }
+  }
   return output;
 }
 
@@ -399,6 +311,12 @@ Deno.serve(async (request) => {
     );
   }
 
+  const leaseToken = crypto.randomUUID();
+  let leased = false;
+  const renewLease = async () => {
+    const { data,error } = await supabase.rpc("backend_sheet_lease", { p_token:leaseToken });
+    if (error || !data) throw new Error("Sync lease unavailable; pending jobs retained.");
+  };
   try {
     if (
       !SUPABASE_URL ||
@@ -410,6 +328,10 @@ Deno.serve(async (request) => {
       throw new Error("Required environment secrets missing");
     }
 
+    const claim = await supabase.rpc("backend_sheet_lease", { p_token:leaseToken });
+    if (claim.error) throw claim.error;
+    if (!claim.data) return jsonResponse({ok:true, busy:true, processed:0});
+    leased = true;
     const { data, error } = await supabase
       .from("sheet_sync_queue")
       .select("*")
@@ -460,6 +382,7 @@ Deno.serve(async (request) => {
     }
 
     if (valid.length) {
+      await renewLease();
       const token = await googleAccessToken();
 
       const tabs = [...new Set(
@@ -470,13 +393,15 @@ Deno.serve(async (request) => {
       const base = spreadsheetBase();
 
       for (const tab of tabs) {
+        await renewLease();
         const tabRecords = valid.filter(
           (record) => record.sheet_tab === tab
         );
 
         try {
           const rows = existing[tab];
-          const idIndex = HEADERS[tab].indexOf(
+          const headers=rows[0];
+          const idIndex = headers.indexOf(
             ID_COLUMNS[tab]
           );
 
@@ -496,8 +421,7 @@ Deno.serve(async (request) => {
             { values: string[] }
           >();
 
-          const appends: string[][] = [];
-          const appendKeys = new Set<string>();
+          const appends = new Map<string, string[]>();
 
           for (const record of tabRecords) {
             const key =
@@ -505,8 +429,9 @@ Deno.serve(async (request) => {
                 ? String(record.id)
                 : String(record.row_key);
 
-            const values = rowValues(record);
             const existingRow = positions.get(key);
+            const previous=existingRow===undefined ? appends.get(key) : (updates.get(existingRow)?.values || rows[existingRow-1]);
+            const values=sheetRow(record,headers,ID_COLUMNS[tab],previous);
 
             if (existingRow !== undefined) {
               // Audit records never overwrite existing logs.
@@ -514,12 +439,7 @@ Deno.serve(async (request) => {
                 updates.set(existingRow, { values });
               }
             } else {
-              if (tab === "Admin_Audit_Logs") {
-                if (appendKeys.has(key)) continue;
-                appendKeys.add(key);
-              }
-
-              appends.push(values);
+              appends.set(key,values);
             }
           }
 
@@ -543,14 +463,14 @@ Deno.serve(async (request) => {
             );
           }
 
-          if (appends.length) {
+          if (appends.size) {
             await sheetsRequest(
               token,
               `${base}/values/${
                 encodeURIComponent(sheetRange(tab, "A1"))
               }:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`,
               "POST",
-              { values: appends }
+              { values: [...appends.values()] }
             );
           }
 
@@ -598,5 +518,7 @@ Deno.serve(async (request) => {
       },
       500
     );
+  } finally {
+    if (leased) { try { await supabase.rpc("backend_sheet_lease", { p_token:leaseToken, p_release:true }); } catch { /* The lease expires if release cannot be confirmed. */ } }
   }
 });

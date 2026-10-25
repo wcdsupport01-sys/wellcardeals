@@ -1,3 +1,4 @@
+import { useStaffAccess } from "../hooks/useStaffAccess";
 import { useEffect, useState } from "react";
 import {
   Car, Hourglass, Gavel, ShoppingCart, Users, Handshake, Trophy,
@@ -68,6 +69,7 @@ function AttentionRow({ icon: Icon, iconBg, title, subtitle, count, to, ctaLabel
 }
 
 export default function Dashboard() {
+  const { canManage } = useStaffAccess();
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState({
     totalCars: 0,
@@ -83,99 +85,31 @@ export default function Dashboard() {
   const [chartData, setChartData] = useState([]);
   const [pendingCars, setPendingCars] = useState([]);
 
+  const [error, setError] = useState(null);
+  const [reload, setReload] = useState(0);
   useEffect(() => {
-    if (!isSupabaseConfigured) {
-      setLoading(false);
-      return;
-    }
-
+    let cancelled = false;
     (async () => {
+      setLoading(true); setError(null);
       try {
-        const nowIso = new Date().toISOString();
-
-        const [
-          totalRes,
-          liveRes,
-          dealersRes,
-          soldRes,
-          pendingDealersRes,
-          pendingAuctionReqRes,
-          pendingBuyReqRes,
-          negotiationRes,
-          endedUncontactedRes,
-          recentRes,
-        ] = await Promise.all([
-          supabase.from("cars").select("*", { count: "exact", head: true }),
-          supabase.from("cars").select("*", { count: "exact", head: true }).eq("channel", "auction").gt("auction_end", nowIso),
-          supabase.from("profiles").select("*", { count: "exact", head: true }).eq("role", "dealer").eq("status", "approved"),
-          supabase.from("cars").select("*", { count: "exact", head: true }).eq("status", "sold"),
-          supabase.from("profiles").select("*", { count: "exact", head: true }).eq("role", "dealer").eq("status", "pending"),
-          supabase.from("car_auction_requests").select("*", { count: "exact", head: true }).eq("status", "pending"),
-          supabase.from("car_purchase_requests").select("*", { count: "exact", head: true }).eq("status", "pending"),
-          supabase.from("cars_negotiation_queue").select("*", { count: "exact", head: true }),
-          supabase
-            .from("cars")
-            .select("id, highest_bidder_name_buyer, highest_bidder_name_dealer, buyer_winner_contacted, dealer_winner_contacted")
-            .not("auction_end", "is", null)
-            .lte("auction_end", nowIso),
-          supabase.from("cars").select("id, title, brand, model, status, created_at, dealer_id")
-            .eq("status", "draft").order("created_at", { ascending: false }).limit(5),
-        ]);
-
-        // A car "needs follow-up" if any of its tracks ended with a winning
-        // bid that hasn't been marked contacted yet.
-        const needsFollowup = (endedUncontactedRes.data || []).filter(
-          (c) =>
-            (c.highest_bidder_name_buyer && !c.buyer_winner_contacted) ||
-            (c.highest_bidder_name_dealer && !c.dealer_winner_contacted)
-        ).length;
-
-        setStats({
-          totalCars: totalRes.count ?? 0,
-          liveAuctions: liveRes.count ?? 0,
-          dealers: dealersRes.count ?? 0,
-          soldTotal: soldRes.count ?? 0,
-          pendingDealers: pendingDealersRes.count ?? 0,
-          pendingAuctionRequests: pendingAuctionReqRes.count ?? 0,
-          pendingBuyRequests: pendingBuyReqRes.count ?? 0,
-          negotiationQueue: negotiationRes.count ?? 0,
-          needsFollowup,
-        });
-
-        setPendingCars(recentRes.data ?? []);
-
-        // Listings-added trend for the last 14 days
-        const { data: recentCars } = await supabase
-          .from("cars")
-          .select("created_at")
-          .order("created_at", { ascending: false })
-          .limit(500);
-
-        const days = {};
-        const today = new Date();
-        for (let i = 13; i >= 0; i--) {
-          const d = new Date(today);
-          d.setDate(d.getDate() - i);
-          const key = d.toLocaleDateString("en-IN", { day: "2-digit", month: "short" });
-          days[key] = 0;
-        }
-        (recentCars || []).forEach((c) => {
-          const key = new Date(c.created_at).toLocaleDateString("en-IN", { day: "2-digit", month: "short" });
-          if (key in days) days[key] += 1;
-        });
-        setChartData(Object.entries(days).map(([date, listings]) => ({ date, listings })));
-      } catch (err) {
-        console.error("Dashboard load failed:", err);
-      } finally {
-        setLoading(false);
-      }
+        if (!isSupabaseConfigured) throw new Error("Account services are unavailable.");
+        const { data, error } = await supabase.rpc("backend_staff_dashboard");
+        if (error || !data) throw error || new Error("Dashboard receipt unavailable.");
+        if (cancelled) return;
+        setStats(data.stats);
+        setPendingCars(data.pending_cars);
+        setChartData(data.chart.map(row => ({ ...row, date: new Date(row.date+"T00:00:00Z").toLocaleDateString("en-IN", { day:"2-digit", month:"short", timeZone:"UTC" }) })));
+      } catch (failure) { if (!cancelled) setError(failure.message || "Dashboard unavailable."); }
+      finally { if (!cancelled) setLoading(false); }
     })();
-  }, []);
+    return () => { cancelled = true; };
+  }, [reload]);
 
   const totalNeedsAttention =
     stats.pendingDealers + stats.pendingAuctionRequests + stats.pendingBuyRequests +
     stats.negotiationQueue + stats.needsFollowup;
 
+  if (error) return <div role="alert" className="p-6 text-white">Dashboard could not be loaded. <button onClick={() => setReload(n => n+1)} className="underline">Retry</button></div>;
   return (
     <div className="min-h-screen -mx-4 md:-mx-8 -my-8 px-4 md:px-8 py-8 bg-[#0B1120]">
       {/* Header */}
@@ -267,18 +201,18 @@ export default function Dashboard() {
         <div className="bg-[#111827] border border-white/10 rounded-2xl p-5">
           <h3 className="text-white font-semibold mb-4">Quick Actions</h3>
           <div className="grid grid-cols-2 gap-3">
-            <Link to="/admin/add-car" className="bg-white/5 hover:bg-white/10 transition rounded-xl p-4 flex flex-col items-center gap-2 text-center">
+            {canManage && <Link to="/admin/add-car" className="bg-white/5 hover:bg-white/10 transition rounded-xl p-4 flex flex-col items-center gap-2 text-center">
               <Plus size={20} className="text-blue-400" />
               <span className="text-xs text-zinc-300 font-medium">Add New Car</span>
-            </Link>
+            </Link>}
             <Link to="/admin/bids" className="bg-white/5 hover:bg-white/10 transition rounded-xl p-4 flex flex-col items-center gap-2 text-center">
               <Gavel size={20} className="text-violet-400" />
               <span className="text-xs text-zinc-300 font-medium">Manage Auctions</span>
             </Link>
-            <Link to="/admin/dealers" className="bg-white/5 hover:bg-white/10 transition rounded-xl p-4 flex flex-col items-center gap-2 text-center">
+            {canManage && <Link to="/admin/dealers" className="bg-white/5 hover:bg-white/10 transition rounded-xl p-4 flex flex-col items-center gap-2 text-center">
               <Users size={20} className="text-emerald-400" />
               <span className="text-xs text-zinc-300 font-medium">Dealers</span>
-            </Link>
+            </Link>}
             <Link to="/admin/buy-requests" className="bg-white/5 hover:bg-white/10 transition rounded-xl p-4 flex flex-col items-center gap-2 text-center">
               <ShoppingCart size={20} className="text-amber-400" />
               <span className="text-xs text-zinc-300 font-medium">Buy Requests</span>
@@ -287,10 +221,10 @@ export default function Dashboard() {
               <Car size={20} className="text-blue-400" />
               <span className="text-xs text-zinc-300 font-medium">Sell Requests</span>
             </Link>
-            <Link to="/admin/negotiate" className="bg-white/5 hover:bg-white/10 transition rounded-xl p-4 flex flex-col items-center gap-2 text-center">
+            {canManage && <Link to="/admin/negotiate" className="bg-white/5 hover:bg-white/10 transition rounded-xl p-4 flex flex-col items-center gap-2 text-center">
               <Handshake size={20} className="text-purple-400" />
               <span className="text-xs text-zinc-300 font-medium">Negotiate</span>
-            </Link>
+            </Link>}
           </div>
         </div>
       </div>
@@ -348,7 +282,7 @@ export default function Dashboard() {
                 {pendingCars.map((car) => (
                   <tr key={car.id} className="border-b border-white/5 last:border-0">
                     <td className="py-3 text-white font-medium">
-                      {car.title || `${car.brand ?? ""} ${car.model ?? ""}`.trim() || "Untitled"}
+                      {car.vehicle_title || "Untitled"}
                     </td>
                     <td className="py-3 text-zinc-400">
                       {car.created_at ? new Date(car.created_at).toLocaleDateString("en-IN") : "—"}

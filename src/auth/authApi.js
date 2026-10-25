@@ -1,3 +1,5 @@
+import { readPages } from "../lib/readPages";
+import { backendCommand } from "../lib/backendCommands";
 import { supabase } from "../lib/supabaseClient";
 
 // ---------------------------------------------------------------------------
@@ -268,25 +270,15 @@ export async function submitDealerApplication({
 }
 
 // ---------------------------------------------------------------------------
-// Dealer applications (admin review) — Phase 1 review only.
-// Approve/Reject here ONLY flips the status column on dealer_applications.
-// No email is sent, no password is created, no auth account/Dealer ID is
-// provisioned. Turning an approved application into a real, logged-in
-// dealer account is a separate, later step.
+// Dealer applications: approval provisions a new login and atomically links
+// its profile and application. Rejection only changes a pending request.
 // ---------------------------------------------------------------------------
 export async function fetchDealerApplications(status = "pending") {
-  let query = supabase
-    .from("dealer_applications")
-    .select("*")
-    .order("created_at", { ascending: false });
-  if (status && status !== "all") query = query.eq("status", status);
-
-  const { data, error } = await query;
-  if (error) {
-    console.error("Error in fetchDealerApplications:", error.message);
-    throw error;
-  }
-  return data || [];
+  return readPages(() => {
+    let q=supabase.from("dealer_applications").select("*", {count:"exact"});
+    if (status && status!=="all") q=q.eq("status",status);
+    return q;
+  });
 }
 
 export async function setDealerApplicationStatus(id, status) {
@@ -305,8 +297,8 @@ export async function setDealerApplicationStatus(id, status) {
 
 // Approve: PHASE 7. Calls the approve-dealer-application Edge Function,
 // which generates a Dealer ID, creates the actual auth account + a secure
-// temp password, marks the application approved, and emails the dealer
-// their Dealer ID + temp password + login link.
+// temp password and atomically approves the application/profile. Credentials
+// are returned once for staff to share manually; no email is sent.
 export async function approveDealerApplication(id) {
   const { data, error } = await supabase.functions.invoke(
     "approve-dealer-application",
@@ -314,12 +306,12 @@ export async function approveDealerApplication(id) {
       body: { applicationId: id },
     },
   );
-  if (error) {
-    console.error("Error in approveDealerApplication:", error.message);
-    throw error;
-  }
-  if (data?.error) {
-    throw new Error(data.error);
+  if (error || data?.error) {
+    let detail = data;
+    try { if (error?.context?.clone) detail = await error.context.clone().json(); } catch { /* Keep the transport error. */ }
+    const failure = new Error(detail?.error || error?.message || "Dealer approval unavailable.");
+    if (detail?.provisioningUserId) failure.provisioningUserId = detail.provisioningUserId;
+    throw failure;
   }
   return data;
 }
@@ -346,10 +338,7 @@ export async function dealerRegister({ email, password, profile, files }) {
       .from("dealer-docs")
       .upload(path, file, { upsert: true });
     if (uploadError) throw uploadError;
-    const { data: urlData } = supabase.storage
-      .from("dealer-docs")
-      .getPublicUrl(path);
-    return urlData.publicUrl;
+    return `storage://dealer-docs/${path}`;
   }
 
   try {
@@ -575,32 +564,13 @@ export async function agentSignIn({ agentCode, password }) {
 // once a real SMS/WhatsApp provider is wired into send-access-code.
 // ---------------------------------------------------------------------------
 export async function approveDealerManualCode(dealerId) {
-  // Goes through the approve-dealer Edge Function (verifies caller is an
-  // admin, then does the status update + code generation with the
-  // service_role key) instead of two separate client-side writes.
-  const { data, error } = await supabase.functions.invoke("approve-dealer", {
-    body: { dealerId },
-  });
-  if (error || data?.error) {
-    const message = error?.message || data.error;
-    console.error("Error approving dealer:", message);
-    throw new Error(message);
-  }
-
-  return data.code; // the 6-digit code, to show + copy in the admin UI
+  return (await backendCommand("dealer_approve", { id: dealerId })).code;
 }
 
 // Admin action: regenerate a fresh code for an already-approved dealer
 // (e.g. they lost the message), again returned for manual sending.
 export async function regenerateDealerManualCode(dealerId) {
-  const { data, error } = await supabase.rpc("generate_dealer_access_code", {
-    p_dealer_id: dealerId,
-  });
-  if (error) {
-    console.error("Error regenerating dealer access code:", error.message);
-    throw error;
-  }
-  return data;
+  return (await backendCommand("dealer_code", { id: dealerId })).code;
 }
 
 // ---------------------------------------------------------------------------

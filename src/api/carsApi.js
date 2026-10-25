@@ -1,3 +1,4 @@
+import { readPages } from "../lib/readPages";
 
 import { supabase, isSupabaseConfigured } from "../lib/supabaseClient";
 
@@ -19,14 +20,9 @@ export async function fetchAuctionCars(
 ) {
   const db = requireSupabase();
 
-  let query = db
-    .from("cars")
-    .select("*, fuel_types(name), transmissions(name), body_types(name), brands(name), models(name)")
-    .order("created_at", { ascending: false });
-
-  if (status) {
-    query = query.eq("status", status);
-  }
+  return readPages(() => {
+  let query = db.from("cars_catalog").select("*, fuel_types(name), transmissions(name), body_types(name), brands(name), models(name)", {count:"exact"});
+  if (status) query=query.eq("status",status);
 
   const isApprovedDealer =
     userRole === "dealer" &&
@@ -39,13 +35,6 @@ export async function fetchAuctionCars(
     query = query.eq("access_type", "all");
   }
 
-  // Do not restrict public visitors to buy_now_only.
-  // LiveAuctions.jsx filters buy_now_only from auction results.
-  const { data, error } = await query;
-
-  if (error) {
-    throw error;
-  }
-
-  return data || [];
+  return query;
+  });
 }

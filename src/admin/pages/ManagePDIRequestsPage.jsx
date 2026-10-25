@@ -1,3 +1,5 @@
+import { readPages } from "../../lib/readPages";
+import { useStaffAccess } from "../hooks/useStaffAccess";
 import React, { useEffect, useMemo, useState } from "react";
 import { supabase } from "../../lib/supabaseClient";
 import { Phone, Car, MessageSquare, MapPin, CheckCircle2, Clock, CalendarClock, XCircle, Search, Trash2 } from "lucide-react";
@@ -10,6 +12,7 @@ const STATUS_STYLES = {
 };
 
 export default function ManagePDIRequestsPage() {
+  const { canManage, canDelete } = useStaffAccess();
   const [requests, setRequests] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -20,10 +23,12 @@ export default function ManagePDIRequestsPage() {
   async function load() {
     setLoading(true);
     setError(null);
-    const { data, error } = await supabase
+    let data, error;
+    try { data = await readPages(() => supabase
       .from("pdi_requests")
-      .select("*")
-      .order("created_at", { ascending: false });
+      .select("*", {count:"exact"})
+      .order("created_at", { ascending: false })); }
+    catch (failure) { error = failure; }
     if (error) setError(error.message);
     else setRequests(data || []);
     setLoading(false);
@@ -34,6 +39,7 @@ export default function ManagePDIRequestsPage() {
   }, []);
 
   async function setStatus(id, status) {
+    if (!canManage) return;
     setUpdatingId(id);
     const { error } = await supabase.from("pdi_requests").update({ status }).eq("id", id);
     setUpdatingId(null);
@@ -45,6 +51,7 @@ export default function ManagePDIRequestsPage() {
   }
 
   async function remove(id) {
+    if (!canDelete) return;
     if (!window.confirm("Delete this PDI request?")) return;
     setUpdatingId(id);
     const { error } = await supabase.from("pdi_requests").delete().eq("id", id);
@@ -154,7 +161,7 @@ export default function ManagePDIRequestsPage() {
               <div className="flex gap-2 shrink-0 flex-wrap">
                 {r.status !== "scheduled" && (
                   <button
-                    disabled={updatingId === r.id}
+                    disabled={!canManage || updatingId === r.id}
                     onClick={() => setStatus(r.id, "scheduled")}
                     className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg bg-blue-500/15 text-blue-400 hover:bg-blue-500/25"
                   >
@@ -163,7 +170,7 @@ export default function ManagePDIRequestsPage() {
                 )}
                 {r.status !== "completed" && (
                   <button
-                    disabled={updatingId === r.id}
+                    disabled={!canManage || updatingId === r.id}
                     onClick={() => setStatus(r.id, "completed")}
                     className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg bg-emerald-500/15 text-emerald-400 hover:bg-emerald-500/25"
                   >
@@ -172,7 +179,7 @@ export default function ManagePDIRequestsPage() {
                 )}
                 {r.status !== "cancelled" && (
                   <button
-                    disabled={updatingId === r.id}
+                    disabled={!canManage || updatingId === r.id}
                     onClick={() => setStatus(r.id, "cancelled")}
                     className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg bg-zinc-500/15 text-zinc-400 hover:bg-zinc-500/25"
                   >
@@ -180,7 +187,7 @@ export default function ManagePDIRequestsPage() {
                   </button>
                 )}
                 <button
-                  disabled={updatingId === r.id}
+                  disabled={!canDelete || updatingId === r.id}
                   onClick={() => remove(r.id)}
                   className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg bg-zinc-500/15 text-zinc-400 hover:bg-red-500/20 hover:text-red-400"
                 >

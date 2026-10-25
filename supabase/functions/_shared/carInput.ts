@@ -17,6 +17,8 @@ const PROTECTED = new Set([
   "inspected_by",
   "inspected_at",
   "handled_at",
+  "dealer_winner_contacted_at",
+  "buyer_winner_contacted_at",
   "tl_reviewed_by",
   "tl_reviewed_at",
 ]);

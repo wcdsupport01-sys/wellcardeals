@@ -11,7 +11,7 @@ export const initialAuthState = () => ({
 
 // One owner for async auth work. Results from an older user/session are never
 // allowed to restore permissions after logout, account changes or disposal.
-export function startAuthSession(db, onState, ensureProfile) {
+export function startAuthSession(db, onState, ensureProfile, resolveProfile = async profile => profile) {
   let active = true,
     generation = 0,
     currentSession = null,
@@ -71,9 +71,11 @@ export function startAuthSession(db, onState, ensureProfile) {
       }
       if (result.error) throw result.error;
       if (!active || request !== generation) return;
-      const profile = result.data;
+      let profile = result.data;
       if (!profile || profile.id !== user.id)
         throw new Error("Account profile could not be verified.");
+      profile = await resolveProfile(profile);
+      if (!active || request !== generation) return;
       const usable =
         profile.status === "approved" ||
         (profile.role === "buyer" && profile.status == null) ||

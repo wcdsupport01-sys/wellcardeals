@@ -22,7 +22,7 @@ export const isSupabaseConfigured = true;
 export const supabase = {
  auth: { getSession: async()=>({data:{session:{user}},error:null}), onAuthStateChange: ()=>({data:{subscription:{unsubscribe(){}}}}), signOut: async()=>({error:null}) },
  removeChannel(){}, channel(){const channel={on:()=>channel,subscribe:()=>channel};return channel;},
- from(table){let action='select';const query={select:()=>query,eq:()=>query,order:()=>query,maybeSingle:()=>query,abortSignal:()=>query,delete:()=>{action='delete';return query;},then(resolve,reject){
+ from(table){let action='select';const query={select:()=>query,eq:()=>query,order:()=>query,limit:()=>query,maybeSingle:()=>query,abortSignal:()=>query,delete:()=>{action='delete';return query;},then(resolve,reject){
  let data=null,error=null;
  if(table==='profiles'){data={id:user.id,role:'buyer',status:'approved',full_name:'Fixture Buyer'};if(window.backendFixture.failProfile)error={message:'offline'};}
  if(table==='car_purchase_requests'){data=[];if(window.backendFixture.failOrders)error={message:'offline'};}

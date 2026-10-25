@@ -1196,8 +1196,8 @@ export default function InventoryPage() {
     try {
       const [
         carsData,
-        { data: staffData },
-        { data: bidsData }
+        { data: staffData, error: staffError },
+        { data: bidsData, error: bidsError }
       ] = await Promise.all([
         fetchCars(),
 
@@ -1206,21 +1206,14 @@ export default function InventoryPage() {
           .select("id, full_name, role")
           .in("role", ["admin", "manager"]),
 
-        supabase
-          .from("car_bids")
-          .select("car_id")
+        supabase.rpc("backend_staff_bid_counts")
       ]);
 
+      if (staffError || bidsError) throw staffError || bidsError;
       setCars(carsData || []);
       setStaff(staffData || []);
 
-      const counts = {};
-
-      (bidsData || []).forEach(({ car_id }) => {
-        counts[car_id] = (counts[car_id] || 0) + 1;
-      });
-
-      setBidCounts(counts);
+      setBidCounts(bidsData || {});
     } catch (err) {
       setError(err.message || "Inventory load failed.");
     } finally {

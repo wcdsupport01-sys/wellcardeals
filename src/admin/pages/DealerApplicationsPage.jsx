@@ -1,3 +1,4 @@
+import { backendCommand } from "../../lib/backendCommands";
 import React, { useEffect, useState } from "react";
 import {
   Building2,
@@ -43,6 +44,7 @@ export default function DealerApplicationsPage() {
   const [filter, setFilter] = useState("pending");
   const [updatingId, setUpdatingId] = useState(null);
   const [viewing, setViewing] = useState(null); // application object, for the details modal
+  const [provisioning, setProvisioning] = useState(null);
   const [credentials, setCredentials] = useState(null); // { dealerId, tempPassword, businessName } after approving
 
   async function load(status = filter) {
@@ -64,6 +66,7 @@ export default function DealerApplicationsPage() {
   }, [filter]);
 
   async function handleApprove(id) {
+    if (readOnly) return;
     setUpdatingId(id);
     try {
       const updated = await approveDealerApplication(id);
@@ -88,6 +91,7 @@ export default function DealerApplicationsPage() {
       }
       return updated;
     } catch (err) {
+      if (err.provisioningUserId) setProvisioning({ application_id:id, auth_user_id:err.provisioningUserId });
       alert(`Couldn't approve: ${err.message}`);
     } finally {
       setUpdatingId(null);
@@ -95,6 +99,7 @@ export default function DealerApplicationsPage() {
   }
 
   async function handleReject(id) {
+    if (readOnly) return;
     setUpdatingId(id);
     try {
       await rejectDealerApplication(id);
@@ -110,9 +115,20 @@ export default function DealerApplicationsPage() {
     }
   }
 
+  async function reconcile() {
+    setUpdatingId(provisioning.application_id);
+    try {
+      await backendCommand("dealer_finalize", provisioning);
+      setProvisioning(null); await load();
+      alert("Account setup completed. Open Dealers to issue a fresh password.");
+    } catch (failure) { alert(failure.message || "Setup could not be confirmed. Retry after reviewing the application."); }
+    finally { setUpdatingId(null); }
+  }
+
   return (
     <div>
       <h1 className="text-2xl font-semibold text-white mb-1">Dealer Applications</h1>
+      {provisioning && <div role="alert" className="my-4 border border-amber-500 p-4 text-amber-200">This application's account setup needs confirmation. <button disabled={Boolean(updatingId)} onClick={reconcile} className="underline">Finish account setup</button></div>}
       <p className="text-sm text-zinc-400 mb-6">
         Review new dealer sign-up applications. Approving or rejecting here only updates the
         application status — no email is sent and no dealer login/password is created yet.

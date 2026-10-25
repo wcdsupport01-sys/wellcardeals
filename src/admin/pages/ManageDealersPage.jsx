@@ -1,3 +1,5 @@
+import { readPages } from "../../lib/readPages";
+import { resolveProfileMedia } from "../../lib/privateMedia";
 import React, { useEffect, useMemo, useState } from "react";
 import { supabase } from "../../lib/supabaseClient";
 import { CheckCircle2, XCircle, Clock, ShieldBan, Copy, RefreshCw, ShieldCheck, Eye, KeyRound, X, Search } from "lucide-react";
@@ -13,9 +15,7 @@ const STATUS_STYLES = {
 
 export default function ManageDealersPage() {
   const { role } = useAuth();
-  // Team Lead now has the same full edit access as Manager — this page no
-  // longer treats team_lead as read-only.
-  const readOnly = false;
+  const readOnly = !["admin", "manager"].includes(role);
   const [dealers, setDealers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -31,13 +31,19 @@ export default function ManageDealersPage() {
   async function load() {
     setLoading(true);
     setError(null);
-    const { data, error } = await supabase
+    let data, error;
+    try { data = await readPages(() => supabase
       .from("profiles")
-      .select("*")
+      .select("*", {count:"exact"})
       .eq("role", "dealer")
-      .order("created_at", { ascending: false });
+      .order("created_at", { ascending: false })); }
+    catch (failure) { error = failure; }
     if (error) setError(error.message);
-    else setDealers(data || []);
+    else {
+      const resolved = await Promise.all((data || []).map(p => resolveProfileMedia(supabase, p, import.meta.env.VITE_SUPABASE_URL)));
+      setDealers(resolved);
+      if (resolved.some(p => p.mediaError)) setError("Some dealer documents could not be opened. Reload to retry.");
+    }
     setLoading(false);
   }
 

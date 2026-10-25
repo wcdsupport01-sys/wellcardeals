@@ -221,7 +221,7 @@ function App() {
             <Route
               path="add-car"
               element={
-                <StaffOnly allow={["admin", "manager", "team_lead"]}>
+                <StaffOnly allow={["admin", "manager"]}>
                   <AddCarPage />
                 </StaffOnly>
               }
@@ -237,7 +237,7 @@ function App() {
             <Route
               path="negotiate"
               element={
-                <StaffOnly allow={["admin", "manager", "team_lead"]}>
+                <StaffOnly allow={["admin", "manager"]}>
                   <NegotiatePage />
                 </StaffOnly>
               }
@@ -301,7 +301,7 @@ function App() {
             <Route
               path="lookups"
               element={
-                <StaffOnly allow={["admin", "manager", "team_lead"]}>
+                <StaffOnly allow={["admin", "manager"]}>
                   <ManageLookupsPage />
                 </StaffOnly>
               }

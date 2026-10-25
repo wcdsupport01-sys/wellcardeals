@@ -103,3 +103,11 @@ Deno.test("listing inputs cannot overwrite bid receipts, server stamps or confir
     true,
   );
 });
+
+Deno.test("Sheet synchronization preserves unprovided cells and maps both column layouts", async () => {
+ const {sheetRow}=await import("../../supabase/functions/_shared/sheetRow.ts");
+ const record={id:12,row_key:"car",payload:{status:"sold",final_price:100000}};
+ assert.deepEqual(sheetRow(record,["car_id","variant","status","final_price"],"car_id",["car","Retain variant","live","90000"]),["car","Retain variant","sold","100000"]);
+ assert.deepEqual(sheetRow({...record,payload:{status:"sold"}},["status","car_id"],"car_id"),["sold","car"]);
+ assert.equal(sheetRow(record,["sync_queue_id"],"sync_queue_id")[0],"12");
+});

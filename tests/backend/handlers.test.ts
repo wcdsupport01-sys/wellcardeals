@@ -95,88 +95,35 @@ Deno.test("invalid JSON values return a client error instead of invoking account
   assert(!scenario.calls.includes("resetPassword"));
 });
 
-Deno.test("listing update rejects tampering and changed auction terms after bids", async () => {
-  const update = await handler("update-car");
-  configure();
-  assert.equal(
-    (await update(request({ id: scenario.target.id, current_bid_dealer: 1 })))
-      .status,
-    400,
-  );
-  assert(
-    !scenario.calls.some((call: any) =>
-      Array.isArray(call) && call[0] === "cars" && call[1] === "update"
-    ),
-  );
-  configure({
-    car: {
-      id: "00000000-0000-0000-0000-000000000002",
-      base_price_dealer: 100000,
-    },
-    bidCount: 1,
-  });
-  assert.equal(
-    (await update(request({ id: scenario.car.id, base_price_dealer: 120000 })))
-      .status,
-    409,
-  );
+Deno.test("listing update rejects client tampering before a database command and maps database conflicts", async () => {
+  const update=await handler("update-car"); configure();
+  assert.equal((await update(request({id:scenario.target.id,current_bid_dealer:1}))).status,400);
+  assert(!scenario.calls.some((c:any)=>Array.isArray(c)&&c[0]==="rpc"));
+  configure({commandError:{code:"22023",message:"Auction terms cannot change after bids exist."}});
+  assert.equal((await update(request({id:scenario.target.id,base_price_dealer:120000}))).status,409);
+  assert(!scenario.calls.some((c:any)=>Array.isArray(c)&&c[0]==="cars"&&c[1]==="update"));
 });
-Deno.test("concurrent bid causes listing edit to return conflict instead of overwriting it", async () => {
-  const update = await handler("update-car");
-  configure({
-    car: {
-      id: "00000000-0000-0000-0000-000000000002",
-      base_price_dealer: 100000,
-      current_bid_dealer: 100000,
-      highest_bidder_id_dealer: null,
-    },
-    bidCount: 0,
-    carUpdateMissing: true,
-  });
-  assert.equal(
-    (await update(request({ id: scenario.car.id, base_price_dealer: 120000 })))
-      .status,
-    409,
-  );
-  const mutation = scenario.calls.find((call: any) =>
-    Array.isArray(call) && call[0] === "cars" && call[1] === "update"
-  );
-  assert(mutation);
-  assert.equal(mutation[2].current_bid_dealer, 120000);
-  assert(
-    mutation[3].some((filter: any) =>
-      filter[0] === "current_bid_dealer" && filter[1] === 100000
-    ),
-  );
+Deno.test("authenticated commands forward the verified actor and stable operation header", async () => {
+ const update=await handler("update-car"); configure();
+ const req=request({id:scenario.target.id,vehicle_title:"Revised listing"});
+ req.headers.set("idempotency-key","00000000-0000-0000-0000-000000000099");
+ assert.equal((await update(req)).status,200);
+ const call=scenario.calls.find((c:any)=>Array.isArray(c)&&c[0]==="rpc");
+ assert.equal(call[2].p_actor_id,actorId);assert.equal(call[2].p_operation_id,req.headers.get("idempotency-key"));
+ configure({commandError:{code:"42501",message:"Account no longer approved."}});
+ assert.equal((await update(request({id:scenario.target.id}))).status,403);
 });
-Deno.test("sale confirmation is idempotent and rejects empty or still-open auctions", async () => {
-  const sell = await handler("mark-sold");
-  const id = "00000000-0000-0000-0000-000000000002";
-  configure({ car: { id, status: "sold", dealer_winner_marked_sold: true } });
-  const duplicate = await sell(request({ carId: id, role: "dealer" }));
-  assert.equal(duplicate.status, 200);
-  assert.equal((await duplicate.json()).alreadyConfirmed, true);
-  assert(
-    !scenario.calls.some((call: any) =>
-      Array.isArray(call) && call[0] === "cars" && call[1] === "update"
-    ),
-  );
-  configure({
-    car: {
-      id,
-      status: "live",
-      current_bid_dealer: 100000,
-      highest_bidder_id_dealer: actorId,
-      auction_end: new Date(Date.now() + 100000).toISOString(),
-    },
-  });
-  assert.equal(
-    (await sell(request({ carId: id, role: "dealer" }))).status,
-    409,
-  );
-  configure({ car: { id, status: "live" } });
-  assert.equal(
-    (await sell(request({ carId: id, role: "dealer" }))).status,
-    409,
-  );
+Deno.test("sale errors and uncertain commits are surfaced without an unverified browser write", async () => {
+ const sell=await handler("mark-sold");configure({commandError:{code:"22023",message:"Closed auction required."}});
+ assert.equal((await sell(request({carId:scenario.target.id,role:"dealer"}))).status,409);
+ configure({commandError:{code:"network",message:"Timed out"}});
+ assert.equal((await sell(request({carId:scenario.target.id,role:"dealer"}))).status,503);
+ assert(!scenario.calls.some((c:any)=>Array.isArray(c)&&c[0]==="cars"&&c[1]==="update"));
+});
+Deno.test("dealer provisioning binds the newly created login and never deletes it after an uncertain commit", async () => {
+ const approve=await handler("approve-dealer-application");
+ configure({commandError:{code:"network",message:"Timed out"}});
+ assert.equal((await approve(request({applicationId:scenario.target.id}))).status,503);
+ assert.equal(scenario.createOptions.app_metadata.dealer_application_id,scenario.target.id);
+ assert(!scenario.calls.includes("deleteUser"));assert(!scenario.calls.includes("resetPassword"));
 });

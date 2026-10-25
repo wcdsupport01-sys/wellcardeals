@@ -13,9 +13,9 @@ import { useAuth } from "../auth/AuthContext";
 const NAV = [
   { to: "/admin", label: "Dashboard", icon: LayoutDashboard, end: true, roles: ["admin", "manager", "team_lead"] },
   { to: "/admin/inventory", label: "Inventory", icon: Boxes, roles: ["admin", "manager", "team_lead"] },
-  { to: "/admin/add-car", label: "Add Car", icon: PlusSquare, roles: ["admin", "manager", "team_lead"] },
+  { to: "/admin/add-car", label: "Add Car", icon: PlusSquare, roles: ["admin", "manager"] },
   { to: "/admin/bids", label: "Live Bids", icon: Gavel, roles: ["admin", "manager", "team_lead"] },
-  { to: "/admin/negotiate", label: "Negotiate", icon: Handshake, roles: ["admin", "manager", "team_lead"] },
+  { to: "/admin/negotiate", label: "Negotiate", icon: Handshake, roles: ["admin", "manager"] },
   { to: "/admin/buy-requests", label: "Buy Now Requests", icon: ShoppingCart, roles: ["admin", "manager", "team_lead"] },
   { to: "/admin/auction-requests", label: "Sell Requests", icon: FileText, roles: ["admin", "manager", "team_lead"] },
   { to: "/admin/agent-submissions", label: "Agent Submissions", icon: UserCheck, roles: ["admin", "manager", "team_lead"] },
@@ -26,7 +26,7 @@ const NAV = [
   { to: "/admin/dealer-applications", label: "Dealer Applications", icon: ClipboardList, roles: ["admin", "manager"] },
   { to: "/admin/agents", label: "Manage Agents", icon: UserCog, roles: ["admin"] },
   { to: "/admin/users", label: "Manage Users", icon: ShieldCheck, roles: ["admin"] },
-  { to: "/admin/lookups", label: "Dropdown Settings", icon: ListTree, roles: ["admin", "manager", "team_lead"] },
+  { to: "/admin/lookups", label: "Dropdown Settings", icon: ListTree, roles: ["admin", "manager"] },
 ];
 
 const ROLE_LABEL = {

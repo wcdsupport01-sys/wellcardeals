@@ -16,7 +16,8 @@ export function createClient(_url: string, _key: string) {
         data: { user: scenario.user === null ? null : { id: actorId } },
       }),
       admin: {
-        createUser: async () => {
+        createUser: async (options: unknown) => {
+          scenario.createOptions=options;
           scenario.calls.push("createUser");
           return {
             data: {
@@ -39,7 +40,10 @@ export function createClient(_url: string, _key: string) {
         },
       },
     },
-    rpc: async () => ({ data: "DLR-000001", error: null }),
+    rpc: async (name: string,args: unknown) => {
+      scenario.calls.push(["rpc",name,args]);
+      return { data:scenario.commandResult ?? {car:scenario.car ?? {id:scenario.target.id}},error:scenario.commandError ?? null };
+    },
     from(table: string) {
       let id = "", action = "select";
       const filters: any[] = [];

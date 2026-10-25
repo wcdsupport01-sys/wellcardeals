@@ -1,19 +1,22 @@
+import { readPages } from "../../lib/readPages";
+import { useStaffAccess } from "../hooks/useStaffAccess";
 import React, { useEffect, useMemo, useState } from "react";
 import { supabase } from "../../lib/supabaseClient";
 import { UserCheck, Phone, Car, CheckCircle2, Clock, Search, Trash2 } from "lucide-react";
 
 const STATUS_STYLES = {
-  new: "bg-amber-500/15 text-amber-400",
+  pending: "bg-amber-500/15 text-amber-400",
   contacted: "bg-blue-500/15 text-blue-400",
-  closed: "bg-emerald-500/15 text-emerald-400",
+  completed: "bg-emerald-500/15 text-emerald-400",
 };
 
 export default function ManageC2CDealsPage() {
+  const { canManage, canDelete } = useStaffAccess();
   const [requests, setRequests] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [updatingId, setUpdatingId] = useState(null);
-  const [filter, setFilter] = useState("new");
+  const [filter, setFilter] = useState("pending");
   const [search, setSearch] = useState("");
 
   async function load() {
@@ -21,10 +24,12 @@ export default function ManageC2CDealsPage() {
     setError(null);
 
     // Fetch the C2C requests first.
-    const { data, error } = await supabase
+    let data, error;
+    try { data = await readPages(() => supabase
       .from("c2c_deal_requests")
-      .select("*")
-      .order("created_at", { ascending: false });
+      .select("*, cars(id, vehicle_title, thumbnail_url)", {count:"exact"})
+      .order("created_at", { ascending: false })); }
+    catch (failure) { error = failure; }
 
     if (error) {
       setError(error.message);
@@ -34,19 +39,7 @@ export default function ManageC2CDealsPage() {
 
     const rows = data || [];
 
-    // Attach the car's title for display, so admins don't have to
-    // cross-reference car_id manually.
-    const carIds = Array.from(new Set(rows.map((r) => r.car_id).filter(Boolean)));
-    let carsById = {};
-    if (carIds.length > 0) {
-      const { data: cars } = await supabase
-        .from("cars")
-        .select("id, vehicle_title, thumbnail_url")
-        .in("id", carIds);
-      carsById = Object.fromEntries((cars || []).map((c) => [c.id, c]));
-    }
-
-    setRequests(rows.map((r) => ({ ...r, car: carsById[r.car_id] || null })));
+    setRequests(rows.map(r => ({ ...r, car:r.cars || null })));
     setLoading(false);
   }
 
@@ -55,6 +48,7 @@ export default function ManageC2CDealsPage() {
   }, []);
 
   async function setStatus(id, status) {
+    if (!canManage) return;
     setUpdatingId(id);
     const { error } = await supabase.from("c2c_deal_requests").update({ status }).eq("id", id);
     setUpdatingId(null);
@@ -66,6 +60,7 @@ export default function ManageC2CDealsPage() {
   }
 
   async function remove(id) {
+    if (!canDelete) return;
     if (!window.confirm("Delete this C2C deal request?")) return;
     setUpdatingId(id);
     const { error } = await supabase.from("c2c_deal_requests").delete().eq("id", id);
@@ -78,9 +73,9 @@ export default function ManageC2CDealsPage() {
   }
 
   const counts = useMemo(() => {
-    const c = { new: 0, contacted: 0, closed: 0, all: requests.length };
+    const c = { pending: 0, contacted: 0, in_progress:0, completed: 0, cancelled:0, all: requests.length };
     requests.forEach((r) => {
-      const status = r.status || "new";
+      const status = r.status || "pending";
       if (c[status] !== undefined) c[status] += 1;
     });
     return c;
@@ -90,7 +85,7 @@ export default function ManageC2CDealsPage() {
     let list =
       filter === "all"
         ? requests
-        : requests.filter((r) => (r.status || "new") === filter);
+        : requests.filter((r) => (r.status || "pending") === filter);
     if (search.trim()) {
       const q = search.trim().toLowerCase();
       list = list.filter(
@@ -113,7 +108,7 @@ export default function ManageC2CDealsPage() {
 
       <div className="flex flex-col sm:flex-row gap-3 mb-5 sm:items-center sm:justify-between">
         <div className="flex gap-2 flex-wrap">
-          {["new", "contacted", "closed", "all"].map((f) => (
+          {["pending", "contacted", "in_progress", "completed", "cancelled", "all"].map((f) => (
             <button
               key={f}
               onClick={() => setFilter(f)}
@@ -163,10 +158,10 @@ export default function ManageC2CDealsPage() {
                     <p className="font-medium text-white truncate">{r.buyer_name || "Buyer"}</p>
                     <span
                       className={`text-[11px] font-semibold px-2 py-0.5 rounded-full capitalize ${
-                        STATUS_STYLES[r.status || "new"] || "bg-zinc-500/15 text-zinc-400"
+                        STATUS_STYLES[r.status || "pending"] || "bg-zinc-500/15 text-zinc-400"
                       }`}
                     >
-                      {r.status || "new"}
+                      {r.status || "pending"}
                     </span>
                   </div>
                   <p className="text-xs text-zinc-500 flex items-center gap-1 mt-1">
@@ -183,26 +178,26 @@ export default function ManageC2CDealsPage() {
               </div>
 
               <div className="flex gap-2 shrink-0">
-                {(r.status || "new") !== "contacted" && (
+                {(r.status || "pending") !== "contacted" && (
                   <button
-                    disabled={updatingId === r.id}
+                    disabled={!canManage || updatingId === r.id}
                     onClick={() => setStatus(r.id, "contacted")}
                     className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg bg-blue-500/15 text-blue-400 hover:bg-blue-500/25"
                   >
                     <Clock size={13} /> Mark Contacted
                   </button>
                 )}
-                {(r.status || "new") !== "closed" && (
+                {(r.status || "pending") !== "completed" && (
                   <button
-                    disabled={updatingId === r.id}
-                    onClick={() => setStatus(r.id, "closed")}
+                    disabled={!canManage || updatingId === r.id}
+                    onClick={() => setStatus(r.id, "completed")}
                     className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg bg-emerald-500/15 text-emerald-400 hover:bg-emerald-500/25"
                   >
                     <CheckCircle2 size={13} /> Mark Closed
                   </button>
                 )}
                 <button
-                  disabled={updatingId === r.id}
+                  disabled={!canDelete || updatingId === r.id}
                   onClick={() => remove(r.id)}
                   className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg bg-zinc-500/15 text-zinc-400 hover:bg-red-500/20 hover:text-red-400"
                 >

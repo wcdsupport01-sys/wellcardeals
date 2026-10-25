@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Loader2, CheckCircle2, AlertCircle, Car } from "lucide-react";
 import FormSection, { Field, inputClass } from "../../admin/components/FormSection";
 import LookupSelect from "../../admin/components/LookupSelect";
@@ -14,8 +14,7 @@ import {
   RC_STATUS_OPTIONS,
   FINANCE_STATUS_OPTIONS,
 } from "../../admin/lib/lookups";
-import { supabase } from "../../lib/supabaseClient";
-import { useAuth } from "../../auth/AuthContext";
+import { backendCommand } from "../../lib/backendCommands";
 
 // Agent version of "Add Car" — same level of detail as the admin form
 // (src/admin/pages/AddCarPage.jsx), reusing the exact same shared
@@ -88,7 +87,6 @@ const emptyForm = {
 };
 
 export default function AgentAddCarPage() {
-  const { user } = useAuth();
   const { lookups, features, loading, error: lookupError } = useLookups();
   const [form, setForm] = useState(emptyForm);
   const { models } = useModels(form.brand_id);
@@ -98,6 +96,7 @@ export default function AgentAddCarPage() {
   const [videos, setVideos] = useState([]);
   const [documents, setDocuments] = useState([]);
 
+  const pendingPayload = useRef(null);
   const [saving, setSaving] = useState(false);
   const [progress, setProgress] = useState("");
   const [result, setResult] = useState(null); // { ok, message }
@@ -117,7 +116,7 @@ export default function AgentAddCarPage() {
   async function handleSubmit(e) {
     e.preventDefault();
     setResult(null);
-    const validationError = validate();
+    const validationError = pendingPayload.current ? null : validate();
     if (validationError) {
       setResult({ ok: false, message: validationError });
       return;
@@ -125,78 +124,72 @@ export default function AgentAddCarPage() {
 
     setSaving(true);
     try {
-      setProgress("Uploading thumbnail...");
-      const thumbnailUrl = thumbnail[0] ? await uploadCarFile(thumbnail[0], "agent-submissions") : null;
+      if (!pendingPayload.current) {
+        setProgress("Uploading thumbnail...");
+        const thumbnailUrl = thumbnail[0] ? await uploadCarFile(thumbnail[0], "agent-submissions") : null;
 
-      setProgress("Uploading gallery images...");
-      const imageUrls = await uploadManyCarFiles(images, "agent-submissions");
+        setProgress("Uploading gallery images...");
+        const imageUrls = await uploadManyCarFiles(images, "agent-submissions");
 
-      setProgress("Uploading videos...");
-      const videoUrls = await uploadManyCarFiles(videos, "agent-submissions");
+        setProgress("Uploading videos...");
+        const videoUrls = await uploadManyCarFiles(videos, "agent-submissions");
 
-      setProgress("Uploading documents...");
-      const documentUrls = await Promise.all(
-        documents.map(async (doc) => ({ name: doc.name, url: await uploadCarFile(doc, "agent-submissions") }))
-      );
+        setProgress("Uploading documents...");
+        const documentUrls = await Promise.all(
+          documents.map(async (doc) => ({ name: doc.name, url: await uploadCarFile(doc, "agent-submissions") }))
+        );
 
-      setProgress("Submitting for Team Lead approval...");
-      const payload = {
-        vehicle_title: form.vehicle_title.trim(),
-        brand_id: form.brand_id,
-        model_id: form.model_id,
-        variant: form.variant || null,
-        year: form.year ? Number(form.year) : null,
-        registration_year: form.registration_year ? Number(form.registration_year) : null,
-        mileage_km: form.mileage_km ? Number(form.mileage_km) : null,
-        fuel_type_id: form.fuel_type_id,
-        transmission_id: form.transmission_id,
-        body_type_id: form.body_type_id,
-        color_id: form.color_id,
-        category_id: form.category_id,
-        ownership: form.ownership,
-        vin_number: form.vin_number || null,
-        engine_number: form.engine_number || null,
-        engine_capacity: form.engine_capacity || null,
-        horsepower: form.horsepower ? Number(form.horsepower) : null,
-        torque: form.torque || null,
-        drive_type: form.drive_type,
-        seating_capacity: form.seating_capacity ? Number(form.seating_capacity) : null,
-        doors: form.doors ? Number(form.doors) : null,
-        location: form.location || null,
-        registration_state: form.registration_state || null,
-        insurance_validity: form.insurance_validity || null,
-        rc_status: form.rc_status,
-        puc_status: form.puc_status || null,
-        service_history: form.service_history || null,
-        accidental_history: form.accidental_history || null,
-        number_of_keys: form.number_of_keys ? Number(form.number_of_keys) : null,
-        finance_status: form.finance_status,
-        description: form.description || null,
-        seller_notes: form.seller_notes || null,
-        seller_name: form.seller_name || null,
-        seller_phone: form.seller_phone.trim(),
-        buy_now_price: form.expected_price ? Number(form.expected_price) : null,
-        safety_features: form.safety_features,
-        comfort_features: form.comfort_features,
-        exterior_features: form.exterior_features,
-        interior_features: form.interior_features,
-        infotainment_features: form.infotainment_features,
-        thumbnail_url: thumbnailUrl,
-        images: imageUrls,
-        videos: videoUrls,
-        documents: documentUrls,
-        // System-controlled — not editable by the agent. Stays off the
-        // public site until a team_lead/manager/admin approves it.
-        listing_type: "buy_now_only",
-        channel: "buyer",
-        status: "draft",
-        visibility: "hidden",
-        tl_review_status: "pending",
-        submitted_by_agent_id: user.id,
-      };
-
-      const { error: insertError } = await supabase.from("cars").insert(payload);
-      if (insertError) throw insertError;
+        setProgress("Submitting for Team Lead approval...");
+        const payload = {
+          vehicle_title: form.vehicle_title.trim(),
+          brand_id: form.brand_id,
+          model_id: form.model_id,
+          variant: form.variant || null,
+          year: form.year ? Number(form.year) : null,
+          registration_year: form.registration_year ? Number(form.registration_year) : null,
+          mileage_km: form.mileage_km ? Number(form.mileage_km) : null,
+          fuel_type_id: form.fuel_type_id,
+          transmission_id: form.transmission_id,
+          body_type_id: form.body_type_id,
+          color_id: form.color_id,
+          category_id: form.category_id,
+          ownership: form.ownership,
+          vin_number: form.vin_number || null,
+          engine_number: form.engine_number || null,
+          engine_capacity: form.engine_capacity || null,
+          horsepower: form.horsepower ? Number(form.horsepower) : null,
+          torque: form.torque || null,
+          drive_type: form.drive_type,
+          seating_capacity: form.seating_capacity ? Number(form.seating_capacity) : null,
+          doors: form.doors ? Number(form.doors) : null,
+          location: form.location || null,
+          registration_state: form.registration_state || null,
+          insurance_validity: form.insurance_validity || null,
+          rc_status: form.rc_status,
+          puc_status: form.puc_status || null,
+          service_history: form.service_history || null,
+          accidental_history: form.accidental_history || null,
+          number_of_keys: form.number_of_keys ? Number(form.number_of_keys) : null,
+          finance_status: form.finance_status,
+          description: form.description || null,
+          seller_notes: form.seller_notes || null,
+          seller_name: form.seller_name || null,
+          seller_phone: form.seller_phone.trim(),
+          buy_now_price: form.expected_price ? Number(form.expected_price) : null,
+          safety_features: form.safety_features,
+          comfort_features: form.comfort_features,
+          exterior_features: form.exterior_features,
+          interior_features: form.interior_features,
+          infotainment_features: form.infotainment_features,
+          thumbnail_url: thumbnailUrl,
+          images: imageUrls,
+          videos: videoUrls,
+          documents: documentUrls,
+        };
+        pendingPayload.current = payload;
+      }
+      await backendCommand("agent_submit", { fields: pendingPayload.current });
+      pendingPayload.current = null;
 
       setResult({ ok: true, message: "Submitted for Team Lead approval." });
       setForm(emptyForm);
@@ -205,7 +198,8 @@ export default function AgentAddCarPage() {
       setVideos([]);
       setDocuments([]);
     } catch (err) {
-      setResult({ ok: false, message: err.message || "Something went wrong while submitting." });
+      if (err.code === "42501" || err.code === "P0002" || /^(22|23)/.test(err.code || "")) pendingPayload.current = null;
+      setResult({ ok: false, message: pendingPayload.current ? "Save could not be confirmed. Retry checks your previous submission before accepting changes." : err.message || "Something went wrong while submitting." });
     } finally {
       setSaving(false);
       setProgress("");

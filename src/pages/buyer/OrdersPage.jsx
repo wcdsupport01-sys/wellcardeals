@@ -1,3 +1,4 @@
+import { readPages } from "../../lib/readPages";
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { Package, CheckCircle2, Clock, XCircle } from "lucide-react";
@@ -39,12 +40,11 @@ export default function OrdersPage() {
       setLoading(true);
       setError("");
       try {
-        const { data, error: failure } = await supabase
+        const data = await readPages(() => supabase
           .from("car_purchase_requests")
-          .select("*, cars(vehicle_title, thumbnail_url)")
+          .select("*, cars(vehicle_title, thumbnail_url)", {count:"exact"})
           .eq("buyer_id", user.id)
-          .order("created_at", { ascending: false });
-        if (failure) throw failure;
+          .order("created_at", { ascending: false }));
         if (active) {
           setRequests(data || []);
         }

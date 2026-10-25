@@ -1,3 +1,4 @@
+import { readPages } from "../../lib/readPages";
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { Heart, Car, Trash2 } from "lucide-react";
@@ -22,14 +23,13 @@ export default function SavedCarsPage() {
     setLoading(true);
     setError("");
     try {
-      const { data, error: failure } = await supabase
+      const data = await readPages(() => supabase
         .from("wishlist")
         .select(
-          "id, created_at, cars(id, vehicle_title, thumbnail_url, images, mileage_km, base_price_buyer, current_bid_buyer, buy_now_price, listing_type, fuel_types(name), transmissions(name))",
+          "id, created_at, cars(id, vehicle_title, thumbnail_url, images, mileage_km, base_price_buyer, current_bid_buyer, buy_now_price, listing_type, fuel_types(name), transmissions(name))", {count:"exact"}
         )
         .eq("buyer_id", user.id)
-        .order("created_at", { ascending: false });
-      if (failure) throw failure;
+        .order("created_at", { ascending: false }));
       setItems(data || []);
     } catch {
       setError("Could not load saved cars. Please retry.");

@@ -1,3 +1,6 @@
+import { readPages } from "../../lib/readPages";
+import { useStaffAccess } from "../hooks/useStaffAccess";
+import { backendCommand } from "../../lib/backendCommands";
 import React, { useEffect, useMemo, useState } from "react";
 import { supabase } from "../../lib/supabaseClient";
 import { Phone, MessageSquare, CheckCircle2, XCircle, Clock, Search, IndianRupee } from "lucide-react";
@@ -13,6 +16,7 @@ const formatINR = (value) =>
   value == null ? "—" : "₹" + Math.round(Number(value)).toLocaleString("en-IN");
 
 export default function ManageBuyRequestsPage() {
+  const { canManage } = useStaffAccess();
   const [requests, setRequests] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -23,10 +27,12 @@ export default function ManageBuyRequestsPage() {
   async function load() {
     setLoading(true);
     setError(null);
-    const { data, error } = await supabase
+    let data, error;
+    try { data = await readPages(() => supabase
       .from("car_purchase_requests")
-      .select("*, cars ( vehicle_title, thumbnail_url )")
-      .order("created_at", { ascending: false });
+      .select("*, cars ( vehicle_title, thumbnail_url )", {count:"exact"})
+      .order("created_at", { ascending: false })); }
+    catch (failure) { error = failure; }
     if (error) setError(error.message);
     else setRequests(data || []);
     setLoading(false);
@@ -37,14 +43,17 @@ export default function ManageBuyRequestsPage() {
   }, []);
 
   async function setStatus(id, status) {
+    if (!canManage) return;
     setUpdatingId(id);
-    const { error } = await supabase.from("car_purchase_requests").update({ status }).eq("id", id);
-    setUpdatingId(null);
-    if (error) {
-      alert(`Couldn't update: ${error.message}`);
-      return;
-    }
-    setRequests((prev) => prev.map((r) => (r.id === id ? { ...r, status } : r)));
+    try {
+      if (status === "completed") await backendCommand("purchase_complete", { id });
+      else {
+        const { error } = await supabase.from("car_purchase_requests").update({ status }).eq("id", id);
+        if (error) throw error;
+      }
+      setRequests(prev => prev.map(r => r.id === id ? { ...r, status } : r));
+    } catch (failure) { alert(`Couldn't update: ${failure.message}`); }
+    finally { setUpdatingId(null); }
   }
 
   const counts = useMemo(() => {
@@ -156,7 +165,7 @@ export default function ManageBuyRequestsPage() {
               <div className="flex gap-2 shrink-0">
                 {r.status !== "contacted" && (
                   <button
-                    disabled={updatingId === r.id}
+                    disabled={!canManage || updatingId === r.id}
                     onClick={() => setStatus(r.id, "contacted")}
                     className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg bg-blue-500/15 text-blue-400 hover:bg-blue-500/25"
                   >
@@ -165,7 +174,7 @@ export default function ManageBuyRequestsPage() {
                 )}
                 {r.status !== "completed" && (
                   <button
-                    disabled={updatingId === r.id}
+                    disabled={!canManage || updatingId === r.id}
                     onClick={() => setStatus(r.id, "completed")}
                     className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg bg-emerald-500/15 text-emerald-400 hover:bg-emerald-500/25"
                   >
@@ -174,7 +183,7 @@ export default function ManageBuyRequestsPage() {
                 )}
                 {r.status !== "cancelled" && (
                   <button
-                    disabled={updatingId === r.id}
+                    disabled={!canManage || updatingId === r.id}
                     onClick={() => setStatus(r.id, "cancelled")}
                     className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg bg-zinc-500/15 text-zinc-400 hover:bg-zinc-500/25"
                   >

@@ -1,14 +1,11 @@
+import { readPages } from "../../lib/readPages";
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../../lib/supabaseClient";
-import { useAuth } from "../../auth/AuthContext";
+import { backendCommand } from "../../lib/backendCommands";
 import { CheckCircle2, XCircle, Phone, MapPin, User2, Search, Image as ImageIcon } from "lucide-react";
 
-// Team Lead / Manager / Admin review queue for cars that field agents have
-// submitted via AgentAddCarPage.jsx. Approving here publishes the car live
-// on the site by setting status: "live" (see STATUS_OPTIONS in
-// src/admin/lib/lookups.js) together with access_type: "all" and
-// listing_type: "buy_now_only" — exactly what fetchAuctionCars() in
-// carsApi.js requires for a buyer to see it, with no separate publish step.
+// Approvals preserve the assigned listing type: auctions are dealer-only;
+// direct purchase listings are visible to buyers. The command stamps the reviewer.
 const STATUS_STYLES = {
   pending: "bg-amber-500/15 text-amber-400",
   approved: "bg-emerald-500/15 text-emerald-400",
@@ -18,7 +15,6 @@ const STATUS_STYLES = {
 const formatINR = (v) => (v == null ? "—" : "₹" + Math.round(Number(v)).toLocaleString("en-IN"));
 
 export default function ManageAgentSubmissionsPage() {
-  const { user } = useAuth();
   const [cars, setCars] = useState([]);
   const [agentsMap, setAgentsMap] = useState({});
   const [loading, setLoading] = useState(true);
@@ -35,11 +31,13 @@ export default function ManageAgentSubmissionsPage() {
     // Joins brand/model names in the same style as fetchAuctionCars()
     // (which joins fuel_types/transmissions) — brand_id/model_id are
     // foreign keys, not plain text, so the name has to come from the join.
-    const { data, error } = await supabase
-      .from("cars")
-      .select("*, brands(name), models(name), fuel_types(name)")
+    let data, error;
+    try { data = await readPages(() => supabase
+      .from("cars_catalog")
+      .select("*, brands(name), models(name), fuel_types(name)", {count:"exact"})
       .not("submitted_by_agent_id", "is", null)
-      .order("created_at", { ascending: false });
+      .order("created_at", { ascending: false })); }
+    catch (failure) { error = failure; }
     if (error) {
       setError(error.message);
       setLoading(false);
@@ -64,60 +62,20 @@ export default function ManageAgentSubmissionsPage() {
     load();
   }, []);
 
-  async function approve(car) {
+  async function review(car, decision, reason = "") {
     setBusyId(car.id);
-    const { error } = await supabase
-      .from("cars")
-      .update({
-        tl_review_status: "approved",
-        status: "live",
-        visibility: "visible",
-        access_type: "all",
-        tl_reviewed_by: user.id,
-        tl_reviewed_at: new Date().toISOString(),
-      })
-      .eq("id", car.id);
-    setBusyId(null);
-    if (error) {
-      alert(`Couldn't approve: ${error.message}`);
-      return;
-    }
-    setCars((prev) =>
-      prev.map((c) =>
-        c.id === car.id
-          ? { ...c, tl_review_status: "approved", status: "live", visibility: "visible", access_type: "all" }
-          : c
-      )
-    );
+    try {
+      const result = await backendCommand("agent_review", { id: car.id, decision, reason });
+      setCars(prev => prev.map(c => c.id === car.id ? { ...c, ...result.car } : c));
+      setRejectingId(null);
+      setRejectReason("");
+    } catch (failure) { alert(`Couldn't review: ${failure.message}`); }
+    finally { setBusyId(null); }
   }
-
+  async function approve(car) { await review(car, "approved"); }
   async function reject(car) {
-    if (!rejectReason.trim()) {
-      alert("Add a short reason so the agent knows what to fix.");
-      return;
-    }
-    setBusyId(car.id);
-    const { error } = await supabase
-      .from("cars")
-      .update({
-        tl_review_status: "rejected",
-        tl_reviewed_by: user.id,
-        tl_reviewed_at: new Date().toISOString(),
-        tl_rejection_reason: rejectReason.trim(),
-      })
-      .eq("id", car.id);
-    setBusyId(null);
-    if (error) {
-      alert(`Couldn't reject: ${error.message}`);
-      return;
-    }
-    setCars((prev) =>
-      prev.map((c) =>
-        c.id === car.id ? { ...c, tl_review_status: "rejected", tl_rejection_reason: rejectReason.trim() } : c
-      )
-    );
-    setRejectingId(null);
-    setRejectReason("");
+    if (!rejectReason.trim()) { alert("Add a reason for the agent."); return; }
+    await review(car, "rejected", rejectReason.trim());
   }
 
   const counts = useMemo(() => {

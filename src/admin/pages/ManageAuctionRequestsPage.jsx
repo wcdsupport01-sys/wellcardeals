@@ -1,3 +1,5 @@
+import { readPages } from "../../lib/readPages";
+import { useStaffAccess } from "../hooks/useStaffAccess";
 import React, { useEffect, useMemo, useState } from "react";
 import { supabase } from "../../lib/supabaseClient";
 import { Phone, CheckCircle2, XCircle, Search } from "lucide-react";
@@ -12,6 +14,7 @@ const formatINR = (value) =>
   value == null ? "—" : "₹" + Math.round(Number(value)).toLocaleString("en-IN");
 
 export default function ManageAuctionRequestsPage() {
+  const { canManage } = useStaffAccess();
   const [requests, setRequests] = useState([]);
   const [agents, setAgents] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -25,11 +28,11 @@ export default function ManageAuctionRequestsPage() {
   async function load() {
     setLoading(true);
     setError(null);
-    const [{ data, error }, { data: agentRows }] = await Promise.all([
-      supabase.from("car_auction_requests").select("*").order("created_at", { ascending: false }),
+    const [{ data, error }, { data: agentRows, error: agentError }] = await Promise.all([
+      readPages(() => supabase.from("car_auction_requests").select("*", {count:"exact"})).then(data=>({data})).catch(error=>({error})),
       supabase.from("profiles").select("id, full_name, agent_code").eq("role", "agent").eq("status", "approved"),
     ]);
-    if (error) setError(error.message);
+    if (error || agentError) setError((error || agentError).message);
     else setRequests(data || []);
     setAgents(agentRows || []);
     setLoading(false);
@@ -44,6 +47,7 @@ export default function ManageAuctionRequestsPage() {
   }
 
   async function approveWithAssignment(r) {
+    if (!canManage) return;
     const draft = drafts[r.id] || {};
     const listing_type = draft.listing_type || r.listing_type;
     const assigned_agent_id = draft.assigned_agent_id ?? r.assigned_agent_id;
@@ -66,6 +70,7 @@ export default function ManageAuctionRequestsPage() {
   }
 
   async function setStatus(id, status) {
+    if (!canManage) return;
     setUpdatingId(id);
     const { error } = await supabase.from("car_auction_requests").update({ status }).eq("id", id);
     setUpdatingId(null);
@@ -198,7 +203,7 @@ export default function ManageAuctionRequestsPage() {
                 <div className="flex gap-2">
                 {r.status !== "approved" && (
                   <button
-                    disabled={updatingId === r.id}
+                    disabled={!canManage || updatingId === r.id}
                     onClick={() => approveWithAssignment(r)}
                     className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg bg-emerald-500/15 text-emerald-400 hover:bg-emerald-500/25"
                   >
@@ -207,7 +212,7 @@ export default function ManageAuctionRequestsPage() {
                 )}
                 {r.status !== "rejected" && (
                   <button
-                    disabled={updatingId === r.id}
+                    disabled={!canManage || updatingId === r.id}
                     onClick={() => setStatus(r.id, "rejected")}
                     className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg bg-red-500/15 text-red-400 hover:bg-red-500/25"
                   >

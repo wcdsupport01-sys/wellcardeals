@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Loader2, CheckCircle2, AlertCircle, Trash2, Plus } from "lucide-react";
 import FormSection, { Field, inputClass } from "../components/FormSection";
 import LookupSelect from "../components/LookupSelect";
@@ -124,6 +124,7 @@ export default function AddCarPage() {
   const [videos, setVideos] = useState([]);
   const [documents, setDocuments] = useState([]);
 
+  const pendingPayload = useRef(null);
   const [saving, setSaving] = useState(false);
   const [progress, setProgress] = useState("");
   const [result, setResult] = useState(null); // { ok: true/false, message }
@@ -199,7 +200,7 @@ export default function AddCarPage() {
   async function handleSubmit(e) {
     e.preventDefault();
     setResult(null);
-    const validationError = validate();
+    const validationError = pendingPayload.current ? null : validate();
     if (validationError) {
       setResult({ ok: false, message: validationError });
       return;
@@ -207,53 +208,57 @@ export default function AddCarPage() {
 
     setSaving(true);
     try {
-      setProgress("Uploading thumbnail...");
-      const thumbnailUrl = thumbnail[0] ? await uploadCarFile(thumbnail[0], "thumbnails") : null;
+      if (!pendingPayload.current) {
+        setProgress("Uploading thumbnail...");
+        const thumbnailUrl = thumbnail[0] ? await uploadCarFile(thumbnail[0], "thumbnails") : null;
 
-      setProgress("Uploading gallery images...");
-      const imageUrls = await uploadManyCarFiles(images, "images");
+        setProgress("Uploading gallery images...");
+        const imageUrls = await uploadManyCarFiles(images, "images");
 
-      setProgress("Uploading 360 images...");
-      const images360Urls = await uploadManyCarFiles(images360, "images-360");
+        setProgress("Uploading 360 images...");
+        const images360Urls = await uploadManyCarFiles(images360, "images-360");
 
-      setProgress("Uploading videos...");
-      const videoUrls = await uploadManyCarFiles(videos, "videos");
+        setProgress("Uploading videos...");
+        const videoUrls = await uploadManyCarFiles(videos, "videos");
 
-      setProgress("Uploading documents...");
-      const documentUrls = await Promise.all(
-        documents.map(async (doc) => ({ name: doc.name, url: await uploadCarFile(doc, "documents") }))
-      );
+        setProgress("Uploading documents...");
+        const documentUrls = await Promise.all(
+          documents.map(async (doc) => ({ name: doc.name, url: await uploadCarFile(doc, "documents") }))
+        );
 
-      const specifications = Object.fromEntries(
-        specRows.filter((r) => r.key.trim()).map((r) => [r.key.trim(), r.value])
-      );
+        const specifications = Object.fromEntries(
+          specRows.filter((r) => r.key.trim()).map((r) => [r.key.trim(), r.value])
+        );
 
-      setProgress("Saving car to database...");
-      const payload = {
-        ...form,
-        year: form.year ? Number(form.year) : null,
-        registration_year: form.registration_year ? Number(form.registration_year) : null,
-        mileage_km: form.mileage_km ? Number(form.mileage_km) : null,
-        horsepower: form.horsepower ? Number(form.horsepower) : null,
-        seating_capacity: form.seating_capacity ? Number(form.seating_capacity) : null,
-        doors: form.doors ? Number(form.doors) : null,
-        number_of_keys: form.number_of_keys ? Number(form.number_of_keys) : null,
-        reserve_price: form.reserve_price ? Number(form.reserve_price) : null,
-        starting_bid: form.starting_bid ? Number(form.starting_bid) : null,
-        buy_now_price: form.buy_now_price ? Number(form.buy_now_price) : null,
-        minimum_increment: Number(form.minimum_increment) || 5000,
-        insurance_validity: form.insurance_validity || null,
-        auction_start: form.auction_start || null,
-        auction_end: form.auction_end || null,
-        specifications,
-        thumbnail_url: thumbnailUrl,
-        images: imageUrls,
-        images_360: images360Urls,
-        videos: videoUrls,
-        documents: documentUrls,
-      };
+        setProgress("Saving car to database...");
+        const payload = {
+          ...form,
+          year: form.year ? Number(form.year) : null,
+          registration_year: form.registration_year ? Number(form.registration_year) : null,
+          mileage_km: form.mileage_km ? Number(form.mileage_km) : null,
+          horsepower: form.horsepower ? Number(form.horsepower) : null,
+          seating_capacity: form.seating_capacity ? Number(form.seating_capacity) : null,
+          doors: form.doors ? Number(form.doors) : null,
+          number_of_keys: form.number_of_keys ? Number(form.number_of_keys) : null,
+          reserve_price: form.reserve_price ? Number(form.reserve_price) : null,
+          starting_bid: form.starting_bid ? Number(form.starting_bid) : null,
+          buy_now_price: form.buy_now_price ? Number(form.buy_now_price) : null,
+          minimum_increment: Number(form.minimum_increment) || 5000,
+          insurance_validity: form.insurance_validity || null,
+          auction_start: form.auction_start || null,
+          auction_end: form.auction_end || null,
+          specifications,
+          thumbnail_url: thumbnailUrl,
+          images: imageUrls,
+          images_360: images360Urls,
+          videos: videoUrls,
+          documents: documentUrls,
+        };
 
-      await createCar(payload);
+        pendingPayload.current = payload;
+      }
+      await createCar(pendingPayload.current);
+      pendingPayload.current = null;
 
       setResult({ ok: true, message: "Car saved successfully." });
       setForm(emptyForm);
@@ -270,7 +275,8 @@ export default function AddCarPage() {
         // non-critical
       }
     } catch (err) {
-      setResult({ ok: false, message: err.message || "Something went wrong while saving." });
+      if (err.code === "42501" || err.code === "P0002" || /^(22|23)/.test(err.code || "")) pendingPayload.current = null;
+      setResult({ ok: false, message: pendingPayload.current ? "Save could not be confirmed. Retry checks your previous submission before accepting changes." : err.message || "Something went wrong while saving." });
     } finally {
       setSaving(false);
       setProgress("");

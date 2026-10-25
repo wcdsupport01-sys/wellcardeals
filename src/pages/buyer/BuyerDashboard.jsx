@@ -1,3 +1,4 @@
+import { readPages } from "../../lib/readPages";
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "../../auth/AuthContext";
@@ -64,30 +65,14 @@ export default function BuyerDashboard() {
       setError("");
       try {
         const results = await Promise.all([
-          supabase
-            .from("car_purchase_requests")
-            .select("*")
-            .eq("buyer_id", user.id)
-            .order("created_at", { ascending: false }),
-          supabase
-            .from("car_auction_requests")
-            .select("*")
-            .eq("buyer_id", user.id)
-            .order("created_at", { ascending: false }),
-          supabase
-            .from("wishlist")
-            .select(
-              "id, created_at, cars(id, vehicle_title, thumbnail_url, images, mileage_km, base_price_buyer, current_bid_buyer, buy_now_price, listing_type, fuel_types(name), transmissions(name))",
-            )
-            .eq("buyer_id", user.id)
-            .order("created_at", { ascending: false }),
+          readPages(() => supabase.from("car_purchase_requests").select("*",{count:"exact"}).eq("buyer_id",user.id)),
+          readPages(() => supabase.from("car_auction_requests").select("*",{count:"exact"}).eq("buyer_id",user.id)),
+          readPages(() => supabase.from("wishlist").select("id, created_at, cars(id, vehicle_title, thumbnail_url, images, mileage_km, base_price_buyer, current_bid_buyer, buy_now_price, listing_type, fuel_types(name), transmissions(name))",{count:"exact"}).eq("buyer_id",user.id)),
         ]);
-        const failure = results.find((result) => result.error)?.error;
-        if (failure) throw failure;
         if (!active) return;
-        setPurchaseRequests(results[0].data || []);
-        setAuctionRequests(results[1].data || []);
-        setWishlist(results[2].data || []);
+        setPurchaseRequests(results[0] || []);
+        setAuctionRequests(results[1] || []);
+        setWishlist(results[2] || []);
       } catch {
         if (active)
           setError("Your account records could not be loaded. Please retry.");

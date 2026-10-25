@@ -1,3 +1,4 @@
+import { readPages } from "../../lib/readPages";
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import {
@@ -44,12 +45,11 @@ export default function MyListingsPage() {
       setLoading(true);
       setError("");
       try {
-        const { data, error: failure } = await supabase
+        const data = await readPages(() => supabase
           .from("car_auction_requests")
-          .select("*")
+          .select("*", {count:"exact"})
           .eq("buyer_id", user.id)
-          .order("created_at", { ascending: false });
-        if (failure) throw failure;
+          .order("created_at", { ascending: false }));
         if (active) {
           setRequests(data || []);
         }

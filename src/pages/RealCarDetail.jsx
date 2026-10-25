@@ -109,7 +109,7 @@ const RealCarDetail = () => {
   const load = useCallback(async () => {
     if (!isSupabaseConfigured) { setError("Supabase isn't configured yet."); setLoading(false); return; }
     setLoading(true);
-    const { data, error } = await supabase.from("cars").select("*").eq("id", id).maybeSingle();
+    const { data, error } = await supabase.from("cars_catalog").select("*").eq("id", id).maybeSingle();
     if (error) setError(error.message);
     else setCar(data);
     setLoading(false);
@@ -146,11 +146,11 @@ const RealCarDetail = () => {
     if (!isSupabaseConfigured || !car) return;
     let cancelled = false;
     (async () => {
-      let query = supabase.from("cars").select("*").neq("id", car.id).eq("status", "live").limit(4);
+      let query = supabase.from("cars_catalog").select("*").neq("id", car.id).eq("status", "live").limit(4);
       if (car.brand_id) query = query.eq("brand_id", car.brand_id);
       let { data } = await query;
       if ((!data || data.length === 0) && car.category_id) {
-        const fallback = await supabase.from("cars").select("*").neq("id", car.id).eq("status", "live").eq("category_id", car.category_id).limit(4);
+        const fallback = await supabase.from("cars_catalog").select("*").neq("id", car.id).eq("status", "live").eq("category_id", car.category_id).limit(4);
         data = fallback.data;
       }
       if (!cancelled) setSimilarCars(data || []);

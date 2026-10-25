@@ -1,3 +1,6 @@
+import { useStaffAccess } from "../hooks/useStaffAccess";
+import { readPages } from "../../lib/readPages";
+import { backendCommand } from "../../lib/backendCommands";
 import React, { useEffect, useState, useCallback, useMemo } from "react";
 import { supabase, isSupabaseConfigured } from "../../lib/supabaseClient";
 import { bidsCsv, bidErrorMessage, loadBidAudit } from "../../dealer/auction";
@@ -169,7 +172,7 @@ function WinnerCard({ car, track, now, onMarkContacted, onMarkSold, marking, sol
               <Mail size={14} /> Email
             </a>
           )}
-          {!track.contacted && (
+          {onMarkContacted && !track.contacted && (
             <button
               disabled={marking}
               onClick={() => onMarkContacted(car.id, track.role)}
@@ -178,7 +181,7 @@ function WinnerCard({ car, track, now, onMarkContacted, onMarkSold, marking, sol
               <CheckCircle2 size={14} /> {marking ? "Saving…" : "Mark Contacted"}
             </button>
           )}
-          {car.status !== "sold" && (
+          {onMarkSold && track.role === "dealer" && car.status !== "sold" && (
             <button
               disabled={soldSaving}
               onClick={() => onMarkSold(car.id, track.role)}
@@ -323,6 +326,7 @@ function AuctionRow({ car, now, isExpanded, onToggle, bidHistory, bidCount, prof
 // Main page
 // ---------------------------------------------------------------------------
 export default function AuctionBidsPage() {
+  const { canManage } = useStaffAccess();
   const now = useNow();
   const [cars, setCars] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -359,28 +363,15 @@ export default function AuctionBidsPage() {
     }
     setLoading(true);
     setError(null);
-    const { data, error } = await supabase
-      .from("cars")
-      .select("*")
-      .not("auction_end", "is", null)
-      .order("auction_end", { ascending: false });
-    if (error) {
-      setError(error.message);
-      setLoading(false);
-      return;
-    }
-    setCars(data || []);
+    try {
+      const [data,counts] = await Promise.all([
+        readPages(() => supabase.from("cars_catalog").select("*", {count:"exact"}).not("auction_end","is",null)),
+        supabase.rpc("backend_staff_bid_counts"),
+      ]);
+      if (counts.error) throw counts.error;
+      setCars(data); setBidCounts(counts.data || {});
+    } catch (failure) { setError(failure.message || "Auctions could not be loaded."); }
 
-    // Bid counts for every auction car, in one query.
-    const ids = (data || []).map((c) => c.id);
-    if (ids.length > 0) {
-      const { data: bidRows } = await supabase.from("car_bids").select("car_id").in("car_id", ids);
-      const counts = {};
-      (bidRows || []).forEach((r) => {
-        counts[r.car_id] = (counts[r.car_id] || 0) + 1;
-      });
-      setBidCounts(counts);
-    }
     setLoading(false);
   }, []);
 
@@ -414,14 +405,7 @@ export default function AuctionBidsPage() {
     if (!isSupabaseConfigured) return;
     const carsChannel = supabase
       .channel("admin-auction-cars")
-      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "cars" }, (payload) => {
-        setCars((prev) => prev.map((c) => (c.id === payload.new.id ? { ...c, ...payload.new } : c)));
-      })
-      .on("postgres_changes", { event: "INSERT", schema: "public", table: "cars" }, (payload) => {
-        if (payload.new.auction_end) {
-          setCars((prev) => (prev.some((c) => c.id === payload.new.id) ? prev : [payload.new, ...prev]));
-        }
-      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "cars" }, () => { load(); })
       .subscribe();
 
     const bidsChannel = supabase
@@ -437,7 +421,7 @@ export default function AuctionBidsPage() {
       supabase.removeChannel(carsChannel);
       supabase.removeChannel(bidsChannel);
     };
-  }, []);
+  }, [load]);
 
   async function toggleExpand(carId) {
     setExpanded((prev) => ({ ...prev, [carId]: !prev[carId] }));
@@ -456,30 +440,18 @@ export default function AuctionBidsPage() {
     const key = `${carId}:${role}`;
     setMarking(key);
     const field = role === "dealer" ? "dealer_winner_contacted" : "buyer_winner_contacted";
-    const atField = role === "dealer" ? "dealer_winner_contacted_at" : "buyer_winner_contacted_at";
-    const nowIso = new Date().toISOString();
-    const { data, error } = await supabase.functions.invoke("update-car", {
-      body: { id: carId, [field]: true, [atField]: nowIso },
-    });
-    setMarking(null);
-    if (error || data?.error) {
-      alert(`Couldn't update: ${error?.message || data.error}`);
-      return;
-    }
-    setCars((prev) => prev.map((c) => (c.id === carId ? { ...c, [field]: true, [atField]: nowIso } : c)));
+    try {
+      const result = await backendCommand("update", { id: carId, fields: { [field]: true } });
+      setCars(prev => prev.map(c => c.id === carId ? { ...c, ...result.car } : c));
+    } catch (failure) { alert(`Couldn't update: ${failure.message}`); }
+    finally { setMarking(null); }
   }
 
   async function markSold(carId, role) {
     const key = role ? `${carId}:${role}` : carId;
     setSoldMarking(key);
     try {
-      // mark-sold is admin-only (verifies JWT + role='admin' server-side),
-      // marks the winning track sold with the service_role key, and
-      // best-effort pushes the winner's details to Google Sheets.
-      const { data, error } = await supabase.functions.invoke("mark-sold", {
-        body: { carId, role: role || "buyer" },
-      });
-      if (error || data?.error) throw new Error(error?.message || data.error);
+      await backendCommand("sale", { id: carId, track: role || "buyer" });
       setCars((prev) => prev.map((c) => (c.id === carId ? { ...c, status: "sold" } : c)));
     } catch (fnError) {
       alert(`Couldn't mark as sold: ${fnError.message}`);
@@ -616,8 +588,8 @@ export default function AuctionBidsPage() {
                   car={car}
                   track={t}
                   now={now}
-                  onMarkContacted={markContacted}
-                  onMarkSold={markSold}
+                  onMarkContacted={canManage ? markContacted : null}
+                  onMarkSold={canManage ? markSold : null}
                   marking={marking === `${car.id}:${t.role}`}
                   soldSaving={soldMarking === `${car.id}:${t.role}`}
                 />
@@ -636,8 +608,8 @@ export default function AuctionBidsPage() {
               bidHistory={bidHistory[car.id]}
               bidCount={bidCounts[car.id]}
               profilesMap={profilesMap}
-              onMarkContacted={markContacted}
-              onMarkSold={markSold}
+              onMarkContacted={canManage ? markContacted : null}
+              onMarkSold={canManage ? markSold : null}
               marking={marking}
               soldSaving={soldMarking}
             />

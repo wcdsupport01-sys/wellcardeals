@@ -1,3 +1,5 @@
+import { readPages } from "../../lib/readPages";
+import { useStaffAccess } from "../hooks/useStaffAccess";
 import React, { useEffect, useMemo, useState } from "react";
 import { supabase } from "../../lib/supabaseClient";
 import { Mail, Phone, MessageSquare, CheckCircle2, Clock, Search, Trash2 } from "lucide-react";
@@ -9,6 +11,7 @@ const STATUS_STYLES = {
 };
 
 export default function ManageEnquiriesPage() {
+  const { canManage, canDelete } = useStaffAccess();
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -19,10 +22,12 @@ export default function ManageEnquiriesPage() {
   async function load() {
     setLoading(true);
     setError(null);
-    const { data, error } = await supabase
+    let data, error;
+    try { data = await readPages(() => supabase
       .from("contact_messages")
-      .select("*")
-      .order("created_at", { ascending: false });
+      .select("*", {count:"exact"})
+      .order("created_at", { ascending: false })); }
+    catch (failure) { error = failure; }
     if (error) setError(error.message);
     else setMessages(data || []);
     setLoading(false);
@@ -33,6 +38,7 @@ export default function ManageEnquiriesPage() {
   }, []);
 
   async function setStatus(id, status) {
+    if (!canManage) return;
     setUpdatingId(id);
     const { error } = await supabase.from("contact_messages").update({ status }).eq("id", id);
     setUpdatingId(null);
@@ -44,6 +50,7 @@ export default function ManageEnquiriesPage() {
   }
 
   async function remove(id) {
+    if (!canDelete) return;
     if (!window.confirm("Delete this enquiry?")) return;
     setUpdatingId(id);
     const { error } = await supabase.from("contact_messages").delete().eq("id", id);
@@ -148,7 +155,7 @@ export default function ManageEnquiriesPage() {
               <div className="flex gap-2 shrink-0">
                 {m.status !== "contacted" && (
                   <button
-                    disabled={updatingId === m.id}
+                    disabled={!canManage || updatingId === m.id}
                     onClick={() => setStatus(m.id, "contacted")}
                     className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg bg-blue-500/15 text-blue-400 hover:bg-blue-500/25"
                   >
@@ -157,7 +164,7 @@ export default function ManageEnquiriesPage() {
                 )}
                 {m.status !== "resolved" && (
                   <button
-                    disabled={updatingId === m.id}
+                    disabled={!canManage || updatingId === m.id}
                     onClick={() => setStatus(m.id, "resolved")}
                     className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg bg-emerald-500/15 text-emerald-400 hover:bg-emerald-500/25"
                   >
@@ -165,7 +172,7 @@ export default function ManageEnquiriesPage() {
                   </button>
                 )}
                 <button
-                  disabled={updatingId === m.id}
+                  disabled={!canDelete || updatingId === m.id}
                   onClick={() => remove(m.id)}
                   className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg bg-zinc-500/15 text-zinc-400 hover:bg-red-500/20 hover:text-red-400"
                 >

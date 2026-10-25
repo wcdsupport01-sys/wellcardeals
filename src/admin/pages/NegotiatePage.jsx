@@ -25,20 +25,21 @@ export default function NegotiatePage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(null); // carId currently saving
   const [drafts, setDrafts] = useState({}); // carId -> { notes, price }
+  const [error, setError] = useState(null);
   const [query, setQuery] = useState("");
 
   async function load() {
-    setLoading(true);
+    setLoading(true); setError(null);
     // cars_negotiation_queue = auction ended, status != 'sold', zero bids,
     // and not already deal_done/rejected (see negotiation_migration.sql).
     const { data, error } = await supabase
-      .from("cars_negotiation_queue")
+      .from("backend_negotiation_queue")
       .select("*")
       .order("auction_end", { ascending: false });
 
     if (error) {
       console.error("Error loading negotiation queue:", error.message);
-      setCars([]);
+      setError("Negotiation queue unavailable. Reload to retry.");
       setLoading(false);
       return;
     }
@@ -114,6 +115,7 @@ export default function NegotiatePage() {
     return cars.filter((c) => (c.vehicle_title || "").toLowerCase().includes(q));
   }, [cars, query]);
 
+  if (error) return <div role="alert">{error} <button onClick={load}>Retry</button></div>;
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
