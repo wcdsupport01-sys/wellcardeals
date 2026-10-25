@@ -9,7 +9,7 @@ import {
 import { supabase, isSupabaseConfigured } from "../lib/supabaseClient";
 import { useAuth } from "../auth/AuthContext";
 import CarCard from "../components/CarCard";
-import DealerApprovalModal from "../components/DealerApprovalModal";
+import DealerBidPanel from "../dealer/DealerBidPanel";
 import { INSPECTION_CATEGORIES } from "../admin/lib/lookups";
 
 const TABS = ["Overview", "Features", "Inspection Report", "Documents", "Similar Cars"];
@@ -18,13 +18,14 @@ const formatINR = (value) =>
   value == null ? "—" : "₹" + Math.round(Number(value)).toLocaleString("en-IN");
 
 function useCountdownTo(endTime) {
-  const [now, setNow] = useState(Date.now());
+  const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(t);
   }, []);
   if (!endTime) return { hours: 0, minutes: 0, seconds: 0, isEnded: true };
-  const diff = Math.max(0, new Date(endTime).getTime() - now);
+  const remaining = new Date(endTime).getTime() - now;
+  const diff = Number.isFinite(remaining) ? Math.max(0, remaining) : 0;
   const isEnded = diff <= 0;
   const hours = Math.floor(diff / 3_600_000);
   const minutes = Math.floor((diff % 3_600_000) / 60_000);
@@ -33,85 +34,6 @@ function useCountdownTo(endTime) {
 }
 
 const pad = (n) => n.toString().padStart(2, "0");
-
-// ─── Bid Confirmation Modal ───────────────────────────────────────────────────
-function BidConfirmModal({ isOpen, onClose, onConfirm, amount, currentBid, carTitle, placing }) {
-  if (!isOpen) return null;
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
-      {/* Backdrop */}
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
-
-      {/* Modal */}
-      <div className="relative w-full max-w-sm bg-white rounded-2xl shadow-2xl overflow-hidden">
-        {/* Header */}
-        <div className="bg-navy-gradient px-6 py-5">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <span className="h-8 w-8 rounded-full bg-white/10 flex items-center justify-center">
-                <Gavel size={16} className="text-white" />
-              </span>
-              <p className="text-white font-bold text-sm">Are You Sure?</p>
-            </div>
-            <button onClick={onClose} className="text-white/60 hover:text-white transition">
-              <X size={18} />
-            </button>
-          </div>
-          {/* Car name */}
-          <p className="text-white/60 text-xs mt-2 truncate">{carTitle}</p>
-        </div>
-
-        {/* Body */}
-        <div className="px-6 py-5">
-          {/* Bid amount highlight */}
-          <div className="bg-brand-50 border border-brand/20 rounded-xl p-4 text-center mb-4">
-            <p className="text-xs text-gray-500 mb-1">Your Bid Amount</p>
-            <p className="text-3xl font-extrabold text-navy-900">{formatINR(amount)}</p>
-          </div>
-
-          {/* Current bid info */}
-          <div className="flex items-center justify-between text-sm mb-5">
-            <span className="text-gray-500">Current Highest Bid</span>
-            <span className="font-semibold text-gray-900">{formatINR(currentBid)}</span>
-          </div>
-
-          {/* Warning */}
-          <div className="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2.5 mb-5">
-            <AlertCircle size={14} className="text-amber-500 mt-0.5 shrink-0" />
-            <p className="text-xs text-amber-700">Bids are binding once placed. Please review carefully before confirming.</p>
-          </div>
-
-          {/* Buttons */}
-          <div className="grid grid-cols-2 gap-3">
-            <button
-              onClick={onClose}
-              disabled={placing}
-              className="py-3 rounded-xl border border-gray-300 text-gray-700 font-semibold text-sm hover:bg-gray-50 transition disabled:opacity-50"
-            >
-              Not Sure
-            </button>
-            <button
-              onClick={onConfirm}
-              disabled={placing}
-              className="py-3 rounded-xl bg-navy-900 hover:bg-navy-700 text-white font-semibold text-sm transition disabled:opacity-60 flex items-center justify-center gap-2"
-            >
-              {placing ? (
-                <>
-                  <span className="h-4 w-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                  Placing…
-                </>
-              ) : (
-                <>
-                  <Gavel size={15} /> Yes, Sure
-                </>
-              )}
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 // ─── Share / Wishlist buttons (reused in two spots on the page) ──────────────
 function ShareButton({ onShare, justCopied, size = 18, className = "" }) {
@@ -145,21 +67,13 @@ const RealCarDetail = () => {
   const { id } = useParams();
   const { role, dealerStatus, profile, user } = useAuth();
   const isApprovedDealer = role === "dealer" && dealerStatus === "approved";
-  const [myBids, setMyBids] = useState([]);
 
   const [car, setCar] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [activeImg, setActiveImg] = useState(0);
   const [lightboxOpen, setLightboxOpen] = useState(false);
-  const [placingBid, setPlacingBid] = useState(false);
-  const [showApprovalModal, setShowApprovalModal] = useState(false);
-  const [customAmount, setCustomAmount] = useState("");
-  const [bidError, setBidError] = useState("");
 
-  // Bid confirmation modal state
-  const [bidModalOpen, setBidModalOpen] = useState(false);
-  const [pendingBidAmount, setPendingBidAmount] = useState(null);
 
   const [activeTab, setActiveTab] = useState("Overview");
   const [similarCars, setSimilarCars] = useState([]);
@@ -214,14 +128,6 @@ const RealCarDetail = () => {
 
   const countdown = useCountdownTo(car?.auction_end);
 
-  const loadMyBids = useCallback(async () => {
-    if (!isSupabaseConfigured || !user) { setMyBids([]); return; }
-    const { data } = await supabase.from("car_bids").select("*").eq("car_id", id).eq("bidder_id", user.id).order("created_at", { ascending: false });
-    setMyBids(data || []);
-  }, [id, user]);
-
-  useEffect(() => { loadMyBids(); }, [loadMyBids]);
-
   // Check whether this car is already in the logged-in buyer's wishlist.
   const loadWishlistStatus = useCallback(async () => {
     if (!isSupabaseConfigured || !user || !id) { setWishlistRowId(null); return; }
@@ -266,7 +172,6 @@ const RealCarDetail = () => {
   const basePrice = isApprovedDealer ? car.base_price_dealer : car.base_price_buyer;
   const displayPrice = currentBid || basePrice;
   const minIncrement = car.minimum_increment || 5000;
-  const nextMinBid = (currentBid || basePrice || 0) + minIncrement;
 
   // EMI calculation — standard reducing-balance formula. loanAmount is the
   // buy-now price minus whatever down payment the buyer enters.
@@ -295,89 +200,6 @@ const RealCarDetail = () => {
   const inspectedCount = inspectionEntries.filter((e) => e.status).length;
   const isInspected = Boolean(car.inspected_at) && inspectedCount > 0;
   const overallInspectionStatus = !isInspected ? null : inspectionEntries.some((e) => e.status === "poor") ? "poor" : inspectionEntries.some((e) => e.status === "fair") ? "fair" : "good";
-
-  // Open confirmation modal instead of placing bid directly
-  function initiateBid(amount) {
-    setBidError("");
-    if (role === "dealer" && dealerStatus === "pending") { setShowApprovalModal(true); return; }
-    if (!amount) { setBidError("Please enter a bid amount"); return; }
-    if (car.reserve_price && amount < car.reserve_price) { setBidError(`Bid cannot be below the reserve price of ${formatINR(car.reserve_price)}`); return; }
-    if (amount < nextMinBid) { setBidError(`Bid must be at least ${formatINR(nextMinBid)}`); return; }
-    setPendingBidAmount(amount);
-    setBidModalOpen(true);
-  }
-
-  // Actually place the bid after confirmation
- 
-async function confirmBid() {
-  if (placingBid) return;
-
-  setBidError("");
-
-  if (!user || !isApprovedDealer) {
-    setBidModalOpen(false);
-    setBidError("Only approved dealers can place auction bids.");
-    return;
-  }
-
-  if (car.listing_type === "buy_now_only") {
-    setBidModalOpen(false);
-    setBidError("Bidding is not available for this listing.");
-    return;
-  }
-
-  if (
-    car.status !== "live" ||
-    !car.auction_end ||
-    new Date(car.auction_end).getTime() <= Date.now()
-  ) {
-    setBidModalOpen(false);
-    setBidError("This auction is not currently active.");
-    return;
-  }
-
-  const amount = Number(pendingBidAmount);
-
-  if (!Number.isSafeInteger(amount) || amount <= 0) {
-    setBidError("Please enter a valid bid amount.");
-    return;
-  }
-
-  setPlacingBid(true);
-
-  try {
-    const { data, error } = await supabase.rpc(
-      "place_dealer_bid",
-      {
-        p_car_id: car.id,
-        p_amount: amount,
-      }
-    );
-
-    if (error) throw error;
-
-    if (data) {
-      setCar((previous) => ({
-        ...previous,
-        ...data,
-      }));
-    }
-
-    setCustomAmount("");
-    setBidModalOpen(false);
-    setPendingBidAmount(null);
-
-    await Promise.all([load(), loadMyBids()]);
-  } catch (err) {
-    setBidModalOpen(false);
-    setBidError(
-      err?.message || "Unable to place bid. Please try again."
-    );
-  } finally {
-    setPlacingBid(false);
-  }
-}
-
 
   async function submitC2cRequest() {
     setC2cError("");
@@ -497,28 +319,8 @@ async function confirmBid() {
     { icon: FileText, label: "Fast RC Transfer" },
   ];
 
-  // Quick bid options
-  const quickBids = [
-    { label: `+${formatINR(minIncrement)}`, amount: nextMinBid },
-    { label: `+${formatINR(minIncrement * 2)}`, amount: (currentBid || basePrice || 0) + minIncrement * 2 },
-    { label: `+${formatINR(minIncrement * 5)}`, amount: (currentBid || basePrice || 0) + minIncrement * 5 },
-  ];
-
   return (
-    <div className="max-w-6xl mx-auto px-4 py-8">
-      <DealerApprovalModal isOpen={showApprovalModal} onClose={() => setShowApprovalModal(false)} />
-
-      {/* Bid Confirmation Modal */}
-      <BidConfirmModal
-        isOpen={bidModalOpen}
-        onClose={() => { if (!placingBid) { setBidModalOpen(false); setPendingBidAmount(null); } }}
-        onConfirm={confirmBid}
-        amount={pendingBidAmount}
-        currentBid={currentBid || basePrice}
-        carTitle={car.vehicle_title}
-        placing={placingBid}
-      />
-
+    <div className={`max-w-6xl mx-auto px-4 py-8 ${isApprovedDealer && car.listing_type !== "buy_now_only" ? "pb-28 md:pb-8" : ""}`}>
       {/* Breadcrumb */}
       <div className="text-xs text-gray-500 flex items-center gap-1.5 mb-4">
         <Link to="/" className="hover:underline">Home</Link>
@@ -734,19 +536,7 @@ async function confirmBid() {
           </div>
     )}
           
-          {user && myBids.length > 0 && (
-            <div className="mt-4 border border-gray-200 rounded-xl p-4">
-              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Your Bids</p>
-              <ul className="text-sm divide-y divide-gray-100">
-                {myBids.slice(0, 5).map((b) => (
-                  <li key={b.id} className="flex justify-between py-1.5">
-                    <span className="text-gray-500">{new Date(b.created_at).toLocaleString("en-IN")}</span>
-                    <span className="font-medium text-gray-900">{formatINR(b.amount)}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
+
         </div>
 
       </div>
@@ -755,11 +545,25 @@ async function confirmBid() {
       <div className="bg-navy-gradient text-white rounded-2xl p-5 md:p-6 mt-6">
         {car.listing_type !== "buy_now_only" ? (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {/* Left half: status + current bid */}
+            {isApprovedDealer ? (
+              <div className="space-y-5">
+                <p className="text-xs uppercase tracking-widest text-blue-200">Dealer auction</p>
+                <h2 className="text-2xl font-bold">{car.vehicle_title}</h2>
+                <p className="text-sm text-blue-100">Review the vehicle condition, inspection report and documents before confirming a bid.</p>
+                <dl className="grid grid-cols-2 gap-4 rounded-2xl border border-white/15 bg-white/5 p-4 text-sm">
+                  <div><dt className="text-xs text-white/60">Starting price</dt><dd className="font-semibold mt-1">{formatINR(car.base_price_dealer ?? car.starting_bid)}</dd></div>
+                  <div><dt className="text-xs text-white/60">Reserve floor</dt><dd className="font-semibold mt-1">{formatINR(car.reserve_price)}</dd></div>
+                  <div><dt className="text-xs text-white/60">Minimum increment</dt><dd className="font-semibold mt-1">{formatINR(minIncrement)}</dd></div>
+                  <div><dt className="text-xs text-white/60">Auction closes</dt><dd className="font-semibold mt-1">{car.auction_end ? new Date(car.auction_end).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) + ' IST' : 'Not scheduled'}</dd></div>
+                </dl>
+                <p className="text-sm text-blue-100">The highest bid is subject to seller approval. Your confirmed purchase will appear after the team marks the deal as sold.</p>
+                <Link to="/dealer/dashboard?tab=bids" className="inline-block rounded-xl border border-white/30 px-4 py-2 text-sm font-semibold">View my auctions</Link>
+              </div>
+            ) : (
             <div>
               <div className="flex items-center justify-between mb-4">
                 <p className="text-red-400 text-xs font-semibold flex items-center gap-1.5">
-                  <span className="h-2 w-2 rounded-full bg-red-500 inline-block animate-pulse" /> LIVE
+                  <span className="h-2 w-2 rounded-full bg-red-500 inline-block" /> {car.status === "live" && !countdown.isEnded ? "LIVE" : "CLOSED"}
                 </p>
                 <div className="flex items-center gap-2 text-white/60">
                   <ShareButton onShare={shareCar} justCopied={justCopied} size={14} className="hover:text-white" />
@@ -786,25 +590,14 @@ async function confirmBid() {
                 <p className="text-[11px] text-white/60">Current Highest Bid</p>
                 <p className="text-3xl font-extrabold mt-0.5">{formatINR(currentBid)}</p>
                 <p className="text-[11px] text-white/40 mt-0.5">
-                  {car.highest_bidder_name ? `by ${car.highest_bidder_name}` : "reached across all dealer bids so far"}
+                  {isApprovedDealer ? "Verified dealer bids · review your status in the bidding panel" : "Current auction standing"}
                 </p>
                 <div className="grid grid-cols-3 gap-2 mt-3 pt-3 border-t border-white/10 text-xs">
                   <div><p className="text-white/50">Starting Bid</p><p className="font-semibold">{formatINR(car.starting_bid)}</p></div>
                   <div><p className="text-white/50">Reserve Price</p><p className="font-semibold">{formatINR(car.reserve_price)}</p></div>
                   <div><p className="text-white/50">Min Increment</p><p className="font-semibold">{formatINR(minIncrement)}</p></div>
                 </div>
-                {isApprovedDealer && myBids.length > 0 && (
-                  <div className="flex items-center justify-between mt-3 pt-3 border-t border-white/10 bg-brand/10 -mx-4 -mb-4 px-4 py-2.5 rounded-b-2xl">
-                    <div>
-                      <p className="text-[10px] text-white/60">Your Last Bid</p>
-                      <p className="text-sm font-bold text-white">{formatINR(myBids[0].amount)}</p>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-[10px] text-white/60">Total Bids by You</p>
-                      <p className="text-sm font-bold text-white">{myBids.length}</p>
-                    </div>
-                  </div>
-                )}
+
               </div>
 
               {!isApprovedDealer && (
@@ -825,86 +618,12 @@ async function confirmBid() {
                 </div>
               )}
             </div>
+            )}
 
             {/* Right half: bidding actions */}
             <div>
-              {!countdown.isEnded && isApprovedDealer ? (
-                <div>
-                  {/* Section header — clearly a bidding panel */}
-                  <div className="flex items-center gap-1.5 mb-3">
-                    <Gavel size={13} className="text-brand" />
-                    <p className="text-xs font-bold text-white uppercase tracking-wide">Place Your Bid</p>
-                  </div>
-
-                  {/* Reserve + Minimum bid facts, so there's no confusion on the floor price */}
-                  <div className="grid grid-cols-2 gap-2 mb-4">
-                    <div className="bg-white/5 border border-white/10 rounded-xl px-3 py-2.5">
-                      <p className="text-[10px] text-white/50 flex items-center gap-1"><Lock size={9} /> Reserve Price</p>
-                      <p className="text-sm font-bold text-white mt-0.5">{formatINR(car.reserve_price)}</p>
-                    </div>
-                    <div className="bg-brand/15 border border-brand/40 rounded-xl px-3 py-2.5">
-                      <p className="text-[10px] text-white/70">Minimum Bid Now</p>
-                      <p className="text-sm font-bold text-white mt-0.5">{formatINR(nextMinBid)}</p>
-                    </div>
-                  </div>
-
-                  {/* Quick Bid Buttons — one tap, then a Sure/Not Sure confirmation */}
-                  <p className="text-[10px] text-white/50 uppercase tracking-wide mb-2">Option 1 — Tap an Amount</p>
-                  <div className="grid grid-cols-3 gap-2 mb-4">
-                    {quickBids.map(({ label, amount }) => (
-                      <button
-                        key={label}
-                        onClick={() => initiateBid(amount)}
-                        className="group flex flex-col items-center justify-center gap-0.5 bg-white/10 hover:bg-brand border border-white/15 hover:border-brand text-white rounded-2xl py-3 transition active:scale-95"
-                      >
-                        <span className="text-[9px] text-white/60 group-hover:text-white/90">{label}</span>
-                        <span className="text-[13px] font-bold leading-tight">{formatINR(amount)}</span>
-                      </button>
-                    ))}
-                  </div>
-
-                  {/* Custom Bid */}
-                  <p className="text-[10px] text-white/50 uppercase tracking-wide mb-2">Option 2 — Enter Your Own Amount</p>
-                  <div className="flex gap-2">
-                    <div className="flex-1 relative">
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-white/50 text-sm pointer-events-none z-10">₹</span>
-                      <input
-                        type="text"
-                        inputMode="numeric"
-                        pattern="[0-9]*"
-                        value={customAmount}
-                        onChange={(e) => setCustomAmount(e.target.value.replace(/[^0-9]/g, ""))}
-                        placeholder={`Min ${nextMinBid.toLocaleString("en-IN")}`}
-                        style={{ backgroundColor: "rgba(255,255,255,0.15)", color: "#ffffff" }}
-                        className="w-full border border-white/25 placeholder-white/40 rounded-xl pl-7 pr-3 py-3 text-sm font-medium focus:outline-none focus:border-brand focus:bg-white/20"
-                      />
-                    </div>
-                    <button
-                      onClick={() => initiateBid(Number(customAmount))}
-                      className="flex items-center gap-1.5 bg-brand hover:bg-brand-600 font-semibold text-sm px-4 rounded-xl transition active:scale-95 whitespace-nowrap"
-                    >
-                      <Gavel size={14} /> Place Bid
-                    </button>
-                  </div>
-                  <p className="text-[10px] text-white/40 mt-1.5 flex items-center gap-1">
-                    <AlertCircle size={11} /> You'll always see a Sure / Not Sure step before your bid is placed
-                  </p>
-
-                  {bidError && <p className="text-xs text-red-300 bg-red-500/10 px-3 py-2 rounded-lg mt-3">{bidError}</p>}
-
-                  {/* Clearly separated — this is NOT part of bidding */}
-                  <div className="flex items-center gap-2 my-4">
-                    <div className="flex-1 h-px bg-white/10" />
-                    <span className="text-[10px] text-white/40 uppercase tracking-wide">Or Skip Bidding</span>
-                    <div className="flex-1 h-px bg-white/10" />
-                  </div>
-                  <button
-                    onClick={() => user && setBuyOpen(true)}
-                    className="w-full border border-white/25 text-white font-semibold py-3 rounded-xl hover:bg-white/10 transition flex items-center justify-center gap-2"
-                  >
-                    <ShoppingCart size={15} /> Buy Now — {formatINR(displayPrice)}
-                  </button>
-                </div>
+              {isApprovedDealer ? (
+                <DealerBidPanel key={`${car.id}:${user.id}`} car={car} onCarChange={setCar} />
               ) : !isApprovedDealer ? (
                 <div className="hidden md:flex h-full items-center justify-center">
                   {!user ? (

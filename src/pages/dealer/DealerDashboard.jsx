@@ -1,442 +1,394 @@
-
-import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
-import {
-  Car, Gauge, Trophy, ImageOff,
-  ArrowRight, RefreshCw, Search
-} from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import { Link, useSearchParams } from "react-router-dom";
+import { Gavel, Heart, RefreshCw, Search, ArrowUpRight } from "lucide-react";
 import { useAuth } from "../../auth/AuthContext";
-import { fetchAuctionCars } from "../../api/carsApi";
 import { supabase } from "../../lib/supabaseClient";
-import useCountdown from "../../hooks/useCountdown";
+import {
+  bidErrorMessage,
+  minimumBid,
+  money,
+  timeLeft,
+} from "../../dealer/auction";
+import useAuctionClock from "../../dealer/useAuctionClock";
+import { BidStatus } from "../../dealer/DealerBidPanel";
 
-// Dashboard data comes from Supabase.
-
-function LiveAuctionCard({ car }) {
-  const countdown = useCountdown(
-    new Date(car.auction_end).getTime()
-  );
-
-  const cover =
-    car.thumbnail_url ||
-    (Array.isArray(car.images) && car.images[0]);
-
-  return (
-    <div className="rounded-2xl border border-[#EAEEF7] p-4">
-      <div className="flex items-start gap-3">
-        <div className="h-16 w-16 rounded-xl bg-[#F1F4FB] overflow-hidden shrink-0 flex items-center justify-center">
-          {cover ? (
-            <img
-              src={cover}
-              alt=""
-              className="h-full w-full object-cover"
-            />
-          ) : (
-            <ImageOff
-              size={18}
-              className="text-[#B7C0D8]"
-            />
-          )}
-        </div>
-
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center justify-between gap-2">
-            <p className="font-semibold text-sm truncate">
-              {car.vehicle_title}
-            </p>
-            <span className="shrink-0 text-[10px] font-semibold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full">
-              ● Live
-            </span>
-          </div>
-
-          <p className="text-xs text-[#93A0BD] mt-1">
-            Auction Ends In
-          </p>
-          <p className="text-sm font-bold text-[#1E4FD9]">
-            {String(countdown.hours).padStart(2, "0")}:
-            {String(countdown.minutes).padStart(2, "0")}:
-            {String(countdown.seconds).padStart(2, "0")}
-          </p>
-        </div>
-
-        <div className="text-right shrink-0">
-          <p className="text-xs text-[#93A0BD]">
-            Current Bid
-          </p>
-          <p className="font-bold text-sm">
-            ₹{Number(
-              car.current_bid_dealer ||
-              car.current_bid_buyer ||
-              0
-            ).toLocaleString("en-IN")}
-          </p>
-        </div>
-      </div>
-
-      <div className="flex gap-2 mt-3">
-        <Link
-          to={`/cars/${car.id}`}
-          className="flex-1 text-center bg-[#1E4FD9] text-white text-sm font-semibold rounded-xl py-2"
-        >
-          Raise Bid
-        </Link>
-
-        <Link
-          to={`/cars/${car.id}`}
-          className="flex-1 text-center border border-[#DCE3F5] text-sm font-semibold rounded-xl py-2"
-        >
-          View Details
-        </Link>
-      </div>
-    </div>
-  );
-}
+const TABS = [
+  ["live", "Live auctions"],
+  ["bids", "My bids"],
+  ["watchlist", "Watchlist"],
+  ["results", "Results"],
+];
+const PAGE_SIZE = 24;
 
 export default function DealerDashboard() {
-  const { user, profile, role, dealerStatus } = useAuth();
-
-  const [liveCars, setLiveCars] = useState([]);
-  const [loadingCars, setLoadingCars] = useState(true);
-  const [myBids, setMyBids] = useState([]);
-  const [wonCars, setWonCars] = useState([]);
-  const [loadingBids, setLoadingBids] = useState(true);
-  const [refreshKey, setRefreshKey] = useState(0);
-  const [search, setSearch] = useState("");
-  const [error, setError] = useState("");
-  const [lastUpdated, setLastUpdated] = useState(null);
-
-  useEffect(() => {
-    const timer = window.setInterval(
-      () => setRefreshKey((n) => n + 1),
-      30000
+  const { user, profile } = useAuth();
+  const [params, setParams] = useSearchParams();
+  const tab = TABS.some(([key]) => key === params.get("tab"))
+    ? params.get("tab")
+    : "live";
+  const query = params.get("q") || "";
+  const setQuery = (value) =>
+    setParams(
+      (current) => {
+        const next = new URLSearchParams(current);
+        if (value) next.set("q", value);
+        else next.delete("q");
+        return next;
+      },
+      { replace: true },
     );
-    return () => window.clearInterval(timer);
-  }, []);
+  const [search, setSearch] = useState(params.get("q") || "");
+  const [page, setPage] = useState(0);
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [watchBusy, setWatchBusy] = useState(null);
+  const [watchError, setWatchError] = useState("");
+  const [online, setOnline] = useState(navigator.onLine);
+  const [refresh, setRefresh] = useState(0);
+  const instant = useAuctionClock();
+  const [lastSync, setLastSync] = useState(0);
+  const [clock, setClock] = useState(null);
 
   useEffect(() => {
-    let mounted = true;
-
-    fetchAuctionCars(role, {
-      dealerStatus,
-      status: "live"
-    })
-      .then((data) => {
-        if (mounted) {
-          setLiveCars(
-            (data || []).filter(
-              (c) => c.listing_type !== "buy_now_only"
-            )
-          );
-        }
-      })
-      .catch((err) => {
-        if (mounted) {
-          setError(
-            err.message || "Unable to load auctions"
-          );
-        }
-      })
-      .finally(() => {
-        if (mounted) setLoadingCars(false);
-      });
-
-    return () => {
-      mounted = false;
-    };
-  }, [role, dealerStatus, refreshKey]);
+    const id = setTimeout(() => {
+      setSearch(query);
+      setPage(0);
+    }, 300);
+    return () => clearTimeout(id);
+  }, [query]);
 
   useEffect(() => {
-    if (!user) return;
-    let mounted = true;
-
-    (async () => {
-      setLoadingBids(true);
-
+    let active = true;
+    const abort = new AbortController();
+    async function load() {
+      setLoading(true);
       try {
-        const { data: bidRows, error: bidErr } =
-          await supabase
-            .from("car_bids")
-            .select(
-              "id, car_id, amount, created_at, cars(vehicle_title, status, auction_end)"
-            )
-            .eq("bidder_id", user.id)
-            .order("created_at", {
-              ascending: false
-            })
-            .limit(8);
-
-        if (bidErr) throw bidErr;
-
-        if (mounted) {
-          setMyBids(bidRows || []);
-          setError("");
-          setLastUpdated(new Date());
-        }
-
-        const { data: wonRows, error: wonErr } =
-          await supabase
-            .from("cars")
-            .select(
-              "id, vehicle_title, current_bid_dealer, updated_at"
-            )
-            .eq(
-              "highest_bidder_id_dealer",
-              user.id
-            )
-            .eq("status", "sold");
-
-        if (wonErr) throw wonErr;
-
-        if (mounted) {
-          setWonCars(wonRows || []);
-        }
-      } catch (err) {
-        if (mounted) {
-          setError(
-            err.message ||
-            "Unable to refresh your bids"
+        const { data: response, error: failure } = await supabase
+          .rpc("get_dealer_auction_dashboard", {
+            p_tab: tab,
+            p_search: search.trim(),
+            p_offset: page * PAGE_SIZE,
+            p_limit: PAGE_SIZE,
+          })
+          .abortSignal(
+            AbortSignal.any([abort.signal, AbortSignal.timeout(12000)]),
           );
+        if (failure) throw failure;
+        if (
+          !response?.summary ||
+          !Array.isArray(response.items) ||
+          !Number.isFinite(Date.parse(response.server_time))
+        )
+          throw new Error("Unable to verify auction data.");
+        if (active) {
+          setClock({
+            server: Date.parse(response.server_time),
+            at: performance.now(),
+          });
+          setData({ ...response, view: `${tab}/${search}/${page}` });
+          setError("");
+          setLastSync(performance.now());
         }
+      } catch (failure) {
+        if (active) setError(bidErrorMessage(failure));
       } finally {
-        if (mounted) setLoadingBids(false);
+        if (active) setLoading(false);
       }
-    })();
-
+    }
+    load();
     return () => {
-      mounted = false;
+      active = false;
+      abort.abort();
     };
-  }, [user, refreshKey]);
+  }, [tab, search, page, refresh]);
 
-  const activeBidCarIds = new Set(
-    myBids
-      .filter((b) => b.cars?.status === "live")
-      .map((b) => b.car_id)
-  );
+  useEffect(() => {
+    const timer = setInterval(() => setRefresh((value) => value + 1), 15000);
+    const changed = () => {
+      setOnline(navigator.onLine);
+      if (navigator.onLine) setRefresh((value) => value + 1);
+    };
+    window.addEventListener("online", changed);
+    window.addEventListener("offline", changed);
+    let queued = null;
+    const requestRefresh = () => {
+      if (queued !== null) return;
+      queued = setTimeout(() => {
+        queued = null;
+        setRefresh((value) => value + 1);
+      }, 500);
+    };
+    const channel = supabase
+      .channel(`dealer-dashboard-${user.id}`)
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "cars" },
+        requestRefresh,
+      )
+      .subscribe();
+    return () => {
+      clearTimeout(queued);
+      clearInterval(timer);
+      window.removeEventListener("online", changed);
+      window.removeEventListener("offline", changed);
+      supabase.removeChannel(channel);
+    };
+  }, [user.id]);
 
-  const visibleCars = liveCars.filter((car) =>
-    (car.vehicle_title || "")
-      .toLowerCase()
-      .includes(search.toLowerCase())
+  async function toggleWatch(car) {
+    if (watchBusy) return;
+    setWatchBusy(car.id);
+    setWatchError("");
+    try {
+      const query = car.watchlisted
+        ? supabase
+            .from("wishlist")
+            .delete()
+            .eq("buyer_id", user.id)
+            .eq("car_id", car.id)
+        : supabase
+            .from("wishlist")
+            .upsert(
+              { buyer_id: user.id, car_id: car.id },
+              { onConflict: "buyer_id,car_id", ignoreDuplicates: true },
+            );
+      const { error: failure } = await query;
+      if (failure) throw failure;
+      setRefresh((value) => value + 1);
+    } catch {
+      setWatchError("Could not update your watchlist. Please try again.");
+    } finally {
+      setWatchBusy(null);
+    }
+  }
+
+  const switchTab = useCallback(
+    (next) => {
+      setParams((current) => {
+        const result = new URLSearchParams(current);
+        result.set("tab", next);
+        return result;
+      });
+      setPage(0);
+    },
+    [setParams],
   );
+  const now = clock
+    ? clock.server + Math.max(0, instant.mono - clock.at)
+    : instant.wall;
+  const viewData = data?.view === `${tab}/${search}/${page}` ? data : null;
+  const stale =
+    !online || Boolean(error) || !lastSync || instant.mono - lastSync > 25000;
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-xl font-bold">
-          Welcome back,{" "}
-          {profile?.dealer_name || "Dealer"} 👋
-        </h1>
-
-        <p className="text-sm text-[#93A0BD]">
-          {profile?.business_name ||
-            "Your dealership"}
+      <div className="rounded-3xl bg-gradient-to-br from-slate-950 via-blue-950 to-blue-800 text-white p-6 md:p-8">
+        <p className="text-xs uppercase tracking-widest text-blue-200 mb-2">
+          Approved dealer workspace
+        </p>
+        <h1 className="text-2xl md:text-3xl font-bold">Your auction desk</h1>
+        <p className="text-sm text-blue-100 mt-2">
+          {profile?.business_name || profile?.dealer_name || "Welcome back"}.
+          Track your bids and review every amount before you confirm.
+        </p>
+        <p className="text-xs text-blue-200 mt-4">
+          Highest bid ≠ confirmed purchase. Final sale requires team approval.
         </p>
       </div>
-
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="text-xs text-[#6B7A9A]">
-          Auto-refresh every 30 seconds
-          {lastUpdated
-            ? ` · Updated ${lastUpdated.toLocaleTimeString("en-IN")}`
-            : ""}
-        </div>
-
-        <button
-          type="button"
-          onClick={() =>
-            setRefreshKey((n) => n + 1)
-          }
-          className="flex items-center gap-2 rounded-xl border px-3 py-2 text-sm font-semibold text-[#1E4FD9]"
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        {TABS.map(([key, label]) => (
+          <button
+            key={key}
+            onClick={() => switchTab(key)}
+            className={`text-left rounded-2xl border p-4 ${tab === key ? "bg-blue-50 border-blue-400" : "bg-white border-slate-200"}`}
+          >
+            <p className="text-xs text-slate-600">{label}</p>
+            <p className="text-2xl font-bold mt-2">
+              {data?.summary[key] ?? "—"}
+            </p>
+          </button>
+        ))}
+      </div>
+      <div className="flex flex-wrap gap-3 justify-between items-center">
+        <div
+          role="status"
+          className={`text-xs ${stale ? "text-amber-800" : "text-slate-500"}`}
         >
-          <RefreshCw size={15} />
-          Refresh now
+          {!online
+            ? "Offline · displayed prices may be outdated"
+            : stale
+              ? "Auction data needs refreshing"
+              : `Verified ${Math.floor(Math.max(0, instant.mono - lastSync) / 1000)}s ago · refreshes every 15s`}
+        </div>
+        <button
+          onClick={() => setRefresh((value) => value + 1)}
+          disabled={loading || !online}
+          className="flex items-center gap-2 text-sm text-blue-700 font-semibold disabled:opacity-40"
+        >
+          <RefreshCw size={15} /> Refresh
         </button>
       </div>
-
+      <div
+        className="flex gap-2 overflow-x-auto pb-1"
+        role="tablist"
+        aria-label="Auction views"
+      >
+        {TABS.map(([key, label]) => (
+          <button
+            role="tab"
+            aria-selected={tab === key}
+            key={key}
+            onClick={() => switchTab(key)}
+            className={`shrink-0 rounded-full px-4 py-2 text-sm font-semibold ${tab === key ? "bg-blue-700 text-white" : "bg-white text-slate-600 border"}`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      <label className="flex gap-2 items-center bg-white border rounded-xl p-3">
+        <Search size={18} className="text-slate-400" />
+        <input
+          aria-label="Search auctions"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search car or location"
+          className="bg-transparent w-full text-sm outline-none"
+        />
+      </label>
       {error && (
-        <p
+        <div
           role="alert"
-          className="rounded-xl bg-red-50 p-3 text-sm text-red-700"
+          className="bg-red-50 text-red-800 rounded-xl p-4 text-sm"
         >
-          {error}
+          {error} Previously loaded data may be outdated.
+        </div>
+      )}
+      {watchError && (
+        <p role="alert" className="text-red-700 text-sm">
+          {watchError}
         </p>
       )}
-
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <div className="bg-white rounded-2xl border border-[#EAEEF7] p-5">
-          <div className="flex items-center gap-3">
-            <span className="h-11 w-11 rounded-xl bg-[#1E4FD9] text-white flex items-center justify-center">
-              <Car size={19} />
-            </span>
-            <p className="text-sm text-[#6B7A9A]">
-              Live Auctions
-            </p>
-          </div>
-
-          <p className="text-2xl font-bold mt-3">
-            {loadingCars ? "—" : liveCars.length}
-          </p>
-
-          <p className="text-xs text-[#93A0BD] mt-1">
-            Open for bidding right now
+      {loading && (
+        <p role="status" className="text-sm text-slate-500">
+          Updating auctions…
+        </p>
+      )}
+      {!loading && !error && viewData?.items.length === 0 && (
+        <div className="bg-white rounded-2xl border p-8 text-center">
+          <Gavel className="mx-auto text-blue-500 mb-3" />
+          <h2 className="font-semibold">No auctions in this view</h2>
+          <p className="text-sm text-slate-500 mt-2">
+            Try another tab or clear your search. Use the heart on a car to add
+            it to your watchlist.
           </p>
         </div>
-
-        <div className="bg-white rounded-2xl border border-[#EAEEF7] p-5">
-          <div className="flex items-center gap-3">
-            <span className="h-11 w-11 rounded-xl bg-[#1E4FD9] text-white flex items-center justify-center">
-              <Gauge size={19} />
-            </span>
-
-            <p className="text-sm text-[#6B7A9A]">
-              My Active Bids
-            </p>
-          </div>
-
-          <p className="text-2xl font-bold mt-3">
-            {loadingBids
-              ? "—"
-              : activeBidCarIds.size}
-          </p>
-
-          <p className="text-xs text-[#93A0BD] mt-1">
-            Cars you've bid on that are still live
-          </p>
-        </div>
-
-        <div className="bg-white rounded-2xl border border-[#EAEEF7] p-5">
-          <div className="flex items-center gap-3">
-            <span className="h-11 w-11 rounded-xl bg-[#1E4FD9] text-white flex items-center justify-center">
-              <Trophy size={19} />
-            </span>
-
-            <p className="text-sm text-[#6B7A9A]">
-              Auctions Won
-            </p>
-          </div>
-
-          <p className="text-2xl font-bold mt-3">
-            {loadingBids ? "—" : wonCars.length}
-          </p>
-
-          <p className="text-xs text-[#93A0BD] mt-1">
-            Cars you were the winning bidder on
-          </p>
-        </div>
-      </div>
-
-      <div className="grid lg:grid-cols-2 gap-6">
-        <div className="bg-white rounded-2xl border border-[#EAEEF7] p-5">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="font-semibold text-sm">
-              Live Auctions
-            </h2>
-
-            <Link
-              to="/live-auctions"
-              className="text-xs font-semibold text-[#1E4FD9] flex items-center gap-1"
-            >
-              View All
-              <ArrowRight size={12} />
-            </Link>
-          </div>
-
-          <label className="mb-3 flex items-center gap-2 rounded-xl border px-3 py-2">
-            <Search
-              size={16}
-              className="text-gray-400"
-            />
-
-            <input
-              value={search}
-              onChange={(e) =>
-                setSearch(e.target.value)
-              }
-              placeholder="Search live cars"
-              className="w-full bg-transparent text-sm outline-none"
-            />
-          </label>
-
-          <div className="space-y-3">
-            {loadingCars && (
-              <p className="text-xs text-[#93A0BD]">
-                Loading live auctions…
-              </p>
-            )}
-
-            {!loadingCars &&
-              visibleCars.length === 0 && (
-                <p className="text-xs text-[#93A0BD]">
-                  No matching live auctions right now.
-                </p>
+      )}
+      <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-4">
+        {viewData?.items.map((car) => (
+          <article
+            key={car.id}
+            className="bg-white rounded-2xl border border-slate-200 overflow-hidden"
+          >
+            <div className="relative h-40 bg-slate-100">
+              {car.thumbnail_url || car.images?.[0] ? (
+                <img
+                  src={car.thumbnail_url || car.images[0]}
+                  alt={car.vehicle_title}
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                <div className="h-full grid place-items-center text-slate-400 text-sm">
+                  No vehicle photo
+                </div>
               )}
-
-            {visibleCars.slice(0, 6).map((car) => (
-              <LiveAuctionCard
-                key={car.id}
-                car={car}
-              />
-            ))}
-          </div>
-        </div>
-
-        <div className="bg-white rounded-2xl border border-[#EAEEF7] p-5">
-          <h2 className="font-semibold text-sm mb-4">
-            My Recent Bids
-          </h2>
-
-          <div className="space-y-3">
-            {loadingBids && (
-              <p className="text-xs text-[#93A0BD]">
-                Loading your bids…
-              </p>
-            )}
-
-            {!loadingBids &&
-              myBids.length === 0 && (
-                <p className="text-xs text-[#93A0BD]">
-                  You haven't placed any bids yet.
-                </p>
-              )}
-
-            {myBids.map((b) => (
-              <div
-                key={b.id}
-                className="flex items-center justify-between border-b border-[#F1F4FB] last:border-0 pb-3 last:pb-0"
+              <button
+                onClick={() => toggleWatch(car)}
+                disabled={Boolean(watchBusy) || !online}
+                aria-label={`${car.watchlisted ? "Remove from" : "Add to"} watchlist: ${car.vehicle_title}`}
+                aria-pressed={car.watchlisted}
+                className="absolute right-3 top-3 rounded-full bg-white p-2 text-blue-700 shadow disabled:opacity-50"
               >
-                <div className="min-w-0">
-                  <p className="text-sm font-medium truncate">
-                    {b.cars?.vehicle_title || "Car"}
-                  </p>
-
-                  <p className="text-[11px] text-[#93A0BD]">
-                    {new Date(
-                      b.created_at
-                    ).toLocaleString("en-IN", {
-                      dateStyle: "medium",
-                      timeStyle: "short"
-                    })}
-                  </p>
+                <Heart
+                  size={18}
+                  fill={car.watchlisted ? "currentColor" : "none"}
+                />
+              </button>
+            </div>
+            <div className="p-4">
+              <BidStatus
+                car={car}
+                userId={user.id}
+                myBid={car.last_bid}
+                now={now}
+              />
+              <h2 className="font-bold mt-3">{car.vehicle_title}</h2>
+              <p className="text-xs text-slate-500 mt-1">
+                {[car.year, car.location].filter(Boolean).join(" · ")}
+              </p>
+              <dl className="grid grid-cols-2 gap-3 my-4 text-sm">
+                <div>
+                  <dt className="text-xs text-slate-500">Highest bid</dt>
+                  <dd className="font-bold">{money(car.current_bid_dealer)}</dd>
                 </div>
-
-                <div className="text-right shrink-0">
-                  <p className="text-sm font-bold text-[#1E4FD9]">
-                    ₹{Number(
-                      b.amount
-                    ).toLocaleString("en-IN")}
-                  </p>
-
-                  <p className="text-[10px] text-[#93A0BD]">
-                    {b.cars?.status === "live"
-                      ? "Live"
-                      : b.cars?.status || ""}
-                  </p>
+                <div>
+                  <dt className="text-xs text-slate-500">Your last bid</dt>
+                  <dd className="font-semibold">
+                    {money(car.last_bid?.amount)}
+                  </dd>
                 </div>
-              </div>
-            ))}
-          </div>
-        </div>
+                <div>
+                  <dt className="text-xs text-slate-500">Next minimum</dt>
+                  <dd>
+                    {car.is_live && timeLeft(car.auction_end, now) !== "Ended"
+                      ? money(minimumBid(car))
+                      : "Closed"}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-slate-500">Time remaining</dt>
+                  <dd className="font-mono">
+                    {timeLeft(car.auction_end, now)}
+                  </dd>
+                </div>
+              </dl>
+              <p className="text-xs text-slate-500 mb-3">
+                Your bids on this car: {car.my_bid_count}
+              </p>
+              <Link
+                to={`/cars/${car.id}#dealer-bidding`}
+                className="w-full rounded-xl bg-blue-700 text-white py-3 px-3 flex justify-center items-center gap-2 font-semibold text-sm"
+              >
+                {car.is_live && timeLeft(car.auction_end, now) !== "Ended"
+                  ? "View & review bid"
+                  : "View auction result"}
+                <ArrowUpRight size={15} />
+              </Link>
+            </div>
+          </article>
+        ))}
       </div>
+      {viewData && (
+        <div className="flex justify-between items-center gap-3 text-sm">
+          <button
+            disabled={page === 0 || loading}
+            onClick={() => setPage((value) => value - 1)}
+            className="border rounded-xl px-4 py-2 disabled:opacity-40"
+          >
+            Previous
+          </button>
+          <span>
+            {viewData.total} results · Page {page + 1}
+          </span>
+          <button
+            disabled={(page + 1) * PAGE_SIZE >= viewData.total || loading}
+            onClick={() => setPage((value) => value + 1)}
+            className="border rounded-xl px-4 py-2 disabled:opacity-40"
+          >
+            Next
+          </button>
+        </div>
+      )}
     </div>
   );
 }

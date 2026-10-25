@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useCallback, useMemo } from "react";
 import { supabase, isSupabaseConfigured } from "../../lib/supabaseClient";
+import { bidsCsv, bidErrorMessage } from "../../dealer/auction";
 import {
   Trophy,
   Phone,
@@ -334,6 +335,31 @@ export default function AuctionBidsPage() {
   const [profilesMap, setProfilesMap] = useState({});
   const [marking, setMarking] = useState(null);
   const [soldMarking, setSoldMarking] = useState(null);
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState("");
+
+  async function exportBids() {
+    if (exporting) return;
+    setExporting(true); setExportError("");
+    try {
+      const rows = [];
+      let before = null;
+      while (true) {
+        const { data, error } = await supabase.rpc("get_dealer_bid_audit", { p_before_id: before, p_limit: 500 }).abortSignal(AbortSignal.timeout(15000));
+        if (error) throw error;
+        rows.push(...data);
+        if (data.length < 500) break;
+        const next = data[data.length - 1].id;
+        if (next === before) throw new Error("Unable to advance bid export.");
+        before = next;
+      }
+      const url = URL.createObjectURL(new Blob(["\uFEFF", bidsCsv(rows)], { type: "text/csv;charset=utf-8" }));
+      const link = document.createElement("a");
+      link.href = url; link.download = `auction-bids-${new Date().toISOString().slice(0, 10)}.csv`;
+      link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (failure) { setExportError(bidErrorMessage(failure)); }
+    finally { setExporting(false); }
+  }
 
   const load = useCallback(async () => {
     if (!isSupabaseConfigured) {
@@ -515,6 +541,9 @@ export default function AuctionBidsPage() {
       <p className="text-sm text-zinc-400 mb-4">
         Track who's bidding on every car in real time. The moment an auction ends, the winner's contact details show up here so your team can reach out.
       </p>
+
+      <button onClick={exportBids} disabled={exporting} className="mb-4 rounded-xl border border-white/20 px-4 py-2 text-sm text-white disabled:opacity-50">{exporting ? "Exporting bid records…" : "Export bid history (CSV)"}</button>
+      {exportError && <p role="alert" className="text-sm text-red-400 mb-4">{exportError}</p>}
 
       {/* Revenue snapshot */}
       {!loading && (cars.length > 0) && (

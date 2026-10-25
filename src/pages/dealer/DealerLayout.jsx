@@ -17,7 +17,7 @@ import { useAuth } from "../../auth/AuthContext";
 
 // Only real, working routes — no placeholder "coming soon" items.
 const NAV = [
-  { to: "/dealer/dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { to: "/dealer/dashboard", label: "Auction desk", icon: LayoutDashboard },
   { to: "/buy-car", label: "Buy Cars", icon: ShoppingBag },
   { to: "/live-auctions", label: "Live Auctions", icon: Gavel },
   { to: "/dealer/profile", label: "Profile", icon: User },
@@ -100,7 +100,7 @@ export default function DealerLayout() {
 
   function handleSearch(e) {
     e.preventDefault();
-    navigate(search.trim() ? `/buy-car?q=${encodeURIComponent(search.trim())}` : "/buy-car");
+    navigate(search.trim() ? `/dealer/dashboard?q=${encodeURIComponent(search.trim())}` : "/dealer/dashboard");
   }
 
   async function handleSignOut() {
