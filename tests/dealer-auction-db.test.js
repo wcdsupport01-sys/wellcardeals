@@ -5,6 +5,7 @@ import process from "node:process";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { readFile } from "node:fs/promises";
 
 const container = process.env.AUCTION_TEST_CONTAINER;
 function sql(query) {
@@ -222,11 +223,14 @@ dbtest(
       /foreign key/,
     );
     await assert.rejects(
-      as(1, "SELECT public.get_dealer_bid_audit()"),
+      as(1, "SELECT public.get_dealer_bid_audit_page()"),
       /Staff access/,
     );
-    const audit = await as(5, "SELECT public.get_dealer_bid_audit(NULL,1)");
-    assert.equal(typeof JSON.parse(audit).id, "string");
+    const audit = await as(
+      5,
+      "SELECT public.get_dealer_bid_audit_page(NULL,NULL,1)",
+    );
+    assert.equal(typeof JSON.parse(audit).rows[0].id, "string");
   },
 );
 dbtest(
@@ -252,22 +256,108 @@ dbtest(
   },
 );
 
-dbtest("legacy frontend signature delegates to verified v2 without changing its response shape", async () => {
-  const id = await auction();
-  const car = JSON.parse(await as(1, `SELECT to_jsonb(public.place_dealer_bid('${id}',105000))`));
-  assert.equal(car.id, id);
-  assert.equal(car.current_bid_dealer, 105000);
-  assert.equal(car.highest_bidder_id_dealer, user(1));
-  assert.equal(await sql(`SELECT count(*) FROM public.car_bids WHERE car_id='${id}' AND request_id IS NOT NULL`), '1');
-  await assert.rejects(as(1, `SELECT public.place_dealer_bid('${id}',105000)`), /at least/);
-  await assert.rejects(as(3, `SELECT public.place_dealer_bid('${id}',110000)`), /approved dealers/);
-  await assert.rejects(as(1, `SELECT public.place_dealer_bid('${id}',110000.5)`), /whole-rupee/);
-  await assert.rejects(sql(`SET ROLE anon; SELECT public.place_dealer_bid('${id}',110000)`), /permission denied/);
-});
+dbtest(
+  "legacy frontend signature delegates to verified v2 without changing its response shape",
+  async () => {
+    const id = await auction();
+    const car = JSON.parse(
+      await as(1, `SELECT to_jsonb(public.place_dealer_bid('${id}',105000))`),
+    );
+    assert.equal(car.id, id);
+    assert.equal(car.current_bid_dealer, 105000);
+    assert.equal(car.highest_bidder_id_dealer, user(1));
+    assert.equal(
+      await sql(
+        `SELECT count(*) FROM public.car_bids WHERE car_id='${id}' AND request_id IS NOT NULL`,
+      ),
+      "1",
+    );
+    await assert.rejects(
+      as(1, `SELECT public.place_dealer_bid('${id}',105000)`),
+      /at least/,
+    );
+    await assert.rejects(
+      as(3, `SELECT public.place_dealer_bid('${id}',110000)`),
+      /approved dealers/,
+    );
+    await assert.rejects(
+      as(1, `SELECT public.place_dealer_bid('${id}',110000.5)`),
+      /whole-rupee/,
+    );
+    await assert.rejects(
+      sql(`SET ROLE anon; SELECT public.place_dealer_bid('${id}',110000)`),
+      /permission denied/,
+    );
+  },
+);
 
 dbtest("legacy endpoint also rejects closed and buy-now auctions", async () => {
-  const closed = await auction("auction_end=clock_timestamp()-interval '1 second'");
+  const closed = await auction(
+    "auction_end=clock_timestamp()-interval '1 second'",
+  );
   const buyNow = await auction("listing_type='buy_now_only'");
-  await assert.rejects(as(1, `SELECT public.place_dealer_bid('${closed}',105000)`), /not open/);
-  await assert.rejects(as(1, `SELECT public.place_dealer_bid('${buyNow}',105000)`), /not open/);
+  await assert.rejects(
+    as(1, `SELECT public.place_dealer_bid('${closed}',105000)`),
+    /not open/,
+  );
+  await assert.rejects(
+    as(1, `SELECT public.place_dealer_bid('${buyNow}',105000)`),
+    /not open/,
+  );
 });
+
+dbtest(
+  "audit pagination preserves opaque IDs, equal timestamps and legacy null times",
+  async () => {
+    const id = await auction();
+    await sql(`INSERT INTO public.car_bids(car_id,bidder_id,bidder_name,bidder_role,amount,created_at)
+    SELECT '${id}','${user(1)}','Historical dealer','dealer',105000+n,
+      CASE WHEN n=6 THEN NULL ELSE '2020-01-01T00:00:00Z'::timestamptz END
+    FROM generate_series(1,6) n`);
+    const expected = JSON.parse(
+      await sql(
+        `SELECT jsonb_agg(id::text) FROM public.car_bids WHERE car_id='${id}'`,
+      ),
+    );
+    const first = JSON.parse(
+      await as(5, "SELECT public.get_dealer_bid_audit_page(NULL,NULL,3)"),
+    );
+    const newer =
+      await sql(`INSERT INTO public.car_bids(car_id,bidder_id,bidder_name,bidder_role,amount)
+    VALUES ('${id}','${user(1)}','Newer dealer','dealer',150000) RETURNING id::text`);
+    const rows = [...first.rows];
+    let cursor = first.next_cursor;
+    let pages = 0;
+    while (cursor) {
+      assert(++pages < 100);
+      const next = JSON.parse(
+        await as(
+          5,
+          `SELECT public.get_dealer_bid_audit_page('${cursor.time}','${cursor.id}',3,'${first.as_of}')`,
+        ),
+      );
+      rows.push(...next.rows);
+      cursor = next.next_cursor;
+    }
+    const ids = rows.map((row) => row.id);
+    assert.equal(new Set(ids).size, ids.length);
+    assert(!ids.includes(newer));
+    for (const saved of expected)
+      assert(ids.includes(saved), `missing bid ${saved}`);
+  },
+);
+
+dbtest(
+  "reapplying the migration preserves all existing bid IDs, amounts and receipts",
+  async () => {
+    const capture =
+      "SELECT jsonb_agg(to_jsonb(b) ORDER BY b.id::text) FROM public.car_bids b";
+    const before = await sql(capture);
+    const migration = await readFile(
+      new URL("../supabase/dealer_auction_v2_migration.sql", import.meta.url),
+      "utf8",
+    );
+    await sql(migration);
+    assert.equal(await sql(capture), before);
+  },
+);

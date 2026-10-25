@@ -9,7 +9,7 @@ BEGIN;
 DO $$
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public'
-    AND table_name='car_bids' AND column_name='id' AND udt_name IN ('int2','int4','int8')) THEN
+    AND table_name='car_bids' AND column_name='id' AND udt_name IN ('uuid','int2','int4','int8')) THEN
     RAISE EXCEPTION 'Unsupported car_bids.id type. Inspect the live schema before applying this upgrade.';
   END IF;
   IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public'
@@ -158,14 +158,36 @@ BEGIN
   RETURN v_result;
 END $$;
 
-CREATE OR REPLACE FUNCTION public.get_dealer_bid_audit(p_before_id bigint DEFAULT NULL, p_limit integer DEFAULT 500)
-RETURNS SETOF jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
+-- Bid IDs are opaque identifiers: production uses UUIDs, some older installs
+-- use integers. Export by (acceptance time, text ID) so neither ID type is
+-- mistaken for a chronological sequence. All pages share a fixed cutoff.
+CREATE OR REPLACE FUNCTION public.get_dealer_bid_audit_page(
+  p_before_time timestamptz DEFAULT NULL, p_before_id text DEFAULT NULL,
+  p_limit integer DEFAULT 500, p_as_of timestamptz DEFAULT NULL)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
+DECLARE v_result jsonb; v_cutoff timestamptz := coalesce(p_as_of, clock_timestamp());
 BEGIN
   IF NOT EXISTS(SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role IN ('admin', 'manager', 'team_lead')) THEN
     RAISE EXCEPTION 'Staff access required.' USING ERRCODE = '42501';
   END IF;
-  RETURN QUERY SELECT to_jsonb(b) || jsonb_build_object('id', b.id::text) FROM public.car_bids b WHERE (p_before_id IS NULL OR b.id < p_before_id)
-    ORDER BY b.id DESC LIMIT least(greatest(p_limit, 1), 500);
+  IF p_limit IS NULL OR p_limit NOT BETWEEN 1 AND 500 OR (p_before_time IS NULL) <> (p_before_id IS NULL) THEN
+    RAISE EXCEPTION 'Invalid export cursor or page size.' USING ERRCODE = '22023';
+  END IF;
+  WITH page AS (
+    SELECT to_jsonb(b) || jsonb_build_object('id', b.id::text) AS record,
+      coalesce(b.created_at, '-infinity'::timestamptz) AS sort_time, b.id::text AS sort_id
+    FROM public.car_bids b
+    WHERE coalesce(b.created_at, '-infinity'::timestamptz) <= v_cutoff
+      AND (p_before_time IS NULL OR
+        (coalesce(b.created_at, '-infinity'::timestamptz), b.id::text) < (p_before_time, p_before_id))
+    ORDER BY coalesce(b.created_at, '-infinity'::timestamptz) DESC, b.id::text DESC LIMIT p_limit
+  ) SELECT jsonb_build_object(
+    'rows', coalesce(jsonb_agg(record ORDER BY sort_time DESC, sort_id DESC), '[]'::jsonb),
+    'as_of', v_cutoff,
+    'next_cursor', CASE WHEN count(*) = p_limit THEN
+      (SELECT jsonb_build_object('time', sort_time, 'id', sort_id) FROM page ORDER BY sort_time, sort_id LIMIT 1)
+      ELSE NULL END) INTO v_result FROM page;
+  RETURN v_result;
 END $$;
 
 -- Retire unaudited overloads. Re-enable ONLY the reviewed two-argument signature
@@ -191,10 +213,10 @@ GRANT EXECUTE ON FUNCTION public.place_dealer_bid(uuid,numeric) TO authenticated
 
 REVOKE ALL ON FUNCTION public.place_dealer_bid_v2(uuid,numeric,uuid), public.dealer_bid_receipt(uuid),
   public.dealer_auction_snapshot(uuid), public.get_dealer_auction_dashboard(text,text,integer,integer),
-  public.get_dealer_bid_audit(bigint,integer) FROM PUBLIC, anon;
+  public.get_dealer_bid_audit_page(timestamptz,text,integer,timestamptz) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.place_dealer_bid_v2(uuid,numeric,uuid), public.dealer_bid_receipt(uuid),
   public.dealer_auction_snapshot(uuid), public.get_dealer_auction_dashboard(text,text,integer,integer),
-  public.get_dealer_bid_audit(bigint,integer) TO authenticated;
+  public.get_dealer_bid_audit_page(timestamptz,text,integer,timestamptz) TO authenticated;
 -- Existing installations normally publish these already. Polling remains a
 -- fallback when Realtime is unavailable; do not assume subscription means fresh data.
 DO $$ DECLARE v_table text;

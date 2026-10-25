@@ -22,7 +22,10 @@ export function auctionStatus(car, userId, myBid, now = Date.now()) {
   const deadline = car.auction_end ? Date.parse(car.auction_end) : NaN;
   const live = car.status === "live" && deadline > now;
   if (!live)
-    return leading && Number.isFinite(deadline) && deadline <= now && ["live", "ended"].includes(car.status)
+    return leading &&
+      Number.isFinite(deadline) &&
+      deadline <= now &&
+      ["live", "ended"].includes(car.status)
       ? {
           key: "approval",
           label: "Highest bidder · awaiting approval",
@@ -89,4 +92,34 @@ export function bidsCsv(rows) {
     columns.join(","),
     ...rows.map((row) => columns.map((key) => quote(row[key])).join(",")),
   ].join("\r\n");
+}
+
+// Keep server cursors intact: bid IDs can be UUIDs or large integer strings.
+export async function loadBidAudit(db) {
+  const rows = [];
+  const seen = new Set();
+  let cursor = null;
+  let asOf = null;
+  while (true) {
+    const { data, error } = await db
+      .rpc("get_dealer_bid_audit_page", {
+        p_before_time: cursor?.time ?? null,
+        p_before_id: cursor?.id ?? null,
+        p_limit: 500,
+        p_as_of: asOf,
+      })
+      .abortSignal(AbortSignal.timeout(15000));
+    if (error) throw error;
+    if (!Array.isArray(data?.rows) || !data.as_of)
+      throw new Error("Invalid bid export response.");
+    rows.push(...data.rows);
+    if (!data.next_cursor) return rows;
+    const next = data.next_cursor;
+    const key = JSON.stringify([next.time, next.id]);
+    if (typeof next.id !== "string" || !next.time || seen.has(key))
+      throw new Error("Unable to advance bid export.");
+    seen.add(key);
+    cursor = next;
+    asOf = data.as_of;
+  }
 }

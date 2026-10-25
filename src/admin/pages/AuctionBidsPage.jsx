@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback, useMemo } from "react";
 import { supabase, isSupabaseConfigured } from "../../lib/supabaseClient";
-import { bidsCsv, bidErrorMessage } from "../../dealer/auction";
+import { bidsCsv, bidErrorMessage, loadBidAudit } from "../../dealer/auction";
 import {
   Trophy,
   Phone,
@@ -342,17 +342,7 @@ export default function AuctionBidsPage() {
     if (exporting) return;
     setExporting(true); setExportError("");
     try {
-      const rows = [];
-      let before = null;
-      while (true) {
-        const { data, error } = await supabase.rpc("get_dealer_bid_audit", { p_before_id: before, p_limit: 500 }).abortSignal(AbortSignal.timeout(15000));
-        if (error) throw error;
-        rows.push(...data);
-        if (data.length < 500) break;
-        const next = data[data.length - 1].id;
-        if (next === before) throw new Error("Unable to advance bid export.");
-        before = next;
-      }
+      const rows = await loadBidAudit(supabase);
       const url = URL.createObjectURL(new Blob(["\uFEFF", bidsCsv(rows)], { type: "text/csv;charset=utf-8" }));
       const link = document.createElement("a");
       link.href = url; link.download = `auction-bids-${new Date().toISOString().slice(0, 10)}.csv`;

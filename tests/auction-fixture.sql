@@ -14,7 +14,7 @@ CREATE TABLE public.cars (
   highest_bidder_id_dealer uuid, highest_bidder_name_dealer text
 );
 CREATE TABLE public.car_bids (
-  id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY, car_id uuid NOT NULL REFERENCES public.cars ON DELETE CASCADE,
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(), car_id uuid NOT NULL REFERENCES public.cars ON DELETE CASCADE,
   bidder_id uuid, bidder_name text NOT NULL, bidder_role text NOT NULL, amount numeric NOT NULL,
   is_custom boolean DEFAULT false, created_at timestamptz DEFAULT now()
 );

@@ -25,7 +25,9 @@ Buyer purchases remain on Buy Car. Approved dealers use `/dealer/dashboard` and
   Confirmation requires the existing administrator mark-sold workflow and
   `dealer_winner_marked_sold`, not just an expired countdown.
 - Staff can export bid records with IDs, request IDs and server timestamps.
-  Exports use cursor pagination and escape spreadsheet formula prefixes.
+  Exports use a fixed acceptance-time cutoff and a timestamp + text-ID cursor,
+  supporting both UUID and integer bid IDs without changing existing records.
+  Spreadsheet formula prefixes are escaped.
 
 ## Deployment prerequisite — do not deploy the frontend by itself
 
@@ -71,6 +73,11 @@ Any database rollback needs the reviewed, pre-upgrade schema/function backup
 and must preserve already accepted v2 bids and their request IDs.
 The user's exported production function is retained in
 `docs/legacy-place-dealer-bid.sql` for review only; it is not a migration.
+
+Production schema evidence (2026-10-25): the user exported `car_bids.id` as UUID
+with `gen_random_uuid()`, car/bidder IDs as UUID, `amount` as numeric, and
+`created_at` as timestamptz. The fixture matches this layout. The migration
+accepts UUID or integer bid IDs and never converts IDs or recreates the table.
 
 ## Local validation
 
