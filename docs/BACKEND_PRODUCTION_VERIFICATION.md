@@ -69,8 +69,11 @@ sale guard refuses to confirm a lower cached bid as the winner. Use the read-onl
 `supabase/backend_data_preflight.sql` to check aggregate counters. These records
 need reconciliation before staff can confirm their sales.
 
-Automatic backups/full restore, actual email/SMS/payment and external Sheet
-write delivery were not established by this release. Existing repository-wide
+Daily encrypted database backup tooling and a first encrypted restore test are
+now available; GitHub Secrets setup and the first successful scheduled/workflow
+run remain pending. See [DAILY_DATABASE_BACKUP_HI.md](DAILY_DATABASE_BACKUP_HI.md).
+Full media/platform restore, actual email/SMS/payment and external Sheet write
+delivery were not established by this release. Existing repository-wide
 frontend lint issues remain (73 errors, 3 warnings); the production build and
 relevant tests pass. No software release guarantees zero future errors.
 

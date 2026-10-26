@@ -1,1 +1,9 @@
 node_modules
+# Private backup/recovery outputs never belong in this public repository.
+/backups/
+*.wcdbackup
+*.wcdbackup.partial
+*.private.jsonl
+/private-restore.jsonl
+/private-restore.jsonl.partial
+*backup-encryption-key*.txt

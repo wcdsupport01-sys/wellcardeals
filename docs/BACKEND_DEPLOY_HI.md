@@ -7,8 +7,10 @@ buyer page ke checks pass hain. Existing 31 cars, 8 bids aur 16 profiles safe ha
 
 [Production verification](BACKEND_PRODUCTION_VERIFICATION.md) mein backup,
 checks aur remaining work likha hai. Upgrade se pehle private recovery backup
-banaya aur local restore/migration test kiya gaya. Automatic daily backups aur
-full project restore alag se set up/verify karne hain.
+banaya aur local restore/migration test kiya gaya. Daily encrypted database
+backup code/restore test ready hai; [GitHub ke do secrets](DAILY_DATABASE_BACKUP_HI.md)
+add karke pehla workflow run verify karna baaki hai. Full media/platform restore
+alag work hai.
 
 3 purane closed auctions ka saved price bid history se kam hai. Inka business
 review baaki hai; naya sale command mismatched price ko winner confirm nahi
