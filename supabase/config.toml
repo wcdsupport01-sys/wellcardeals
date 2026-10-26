@@ -55,3 +55,6 @@ verify_jwt = false
 # provide a browser JWT. Keep the deployed gateway behavior on redeploy.
 [functions.sync-google-sheets]
 verify_jwt = false
+
+[functions.push-winner-to-sheet]
+verify_jwt = false

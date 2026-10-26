@@ -63,6 +63,8 @@ try{
  good(await dealer.client.rpc('place_dealer_bid_v2',{p_car_id:auction,p_amount:102000,p_request_id:randomUUID()}),'Per-car bid increment');
  const update=await edge(admin,'update-car',{id:auction,base_price_dealer:1});assert(update.status>=400,'Accepted terms must be immutable');
  const early=await edge(admin,'mark-sold',{carId:auction,role:'dealer'});assert(early.status>=400,'Auction cannot close early');
+ assert.equal((await edge(admin,'push-winner-to-sheet',{carId:auction,role:'dealer'})).status,409,'Legacy endpoint must respect auction closure');
+ assert.equal((await edge(suspended,'push-winner-to-sheet',{carId:auction,role:'dealer'})).status,403,'Legacy endpoint must deny suspended admins');
  // Service-role setup changes only this run's auction to an ended clock.
  good(await service.from('cars').update({auction_end:new Date(Date.now()-60000).toISOString()}).eq('id',auction),'Close synthetic clock');
  good(await service.from('cars').update({current_bid_dealer:101000}).eq('id',auction),'Simulate stale standing cache');

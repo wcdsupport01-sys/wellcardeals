@@ -127,3 +127,14 @@ Deno.test("dealer provisioning binds the newly created login and never deletes i
  assert.equal(scenario.createOptions.app_metadata.dealer_application_id,scenario.target.id);
  assert(!scenario.calls.includes("deleteUser"));assert(!scenario.calls.includes("resetPassword"));
 });
+Deno.test("legacy winner endpoint rejects suspended admins and cannot bypass transactional sale checks", async () => {
+ const sell=await handler("push-winner-to-sheet");configure();
+ assert.equal((await sell(request({},false))).status,401);
+ configure({actor:{id:actorId,role:"admin",status:"suspended"}});
+ assert.equal((await sell(request({carId:scenario.target.id,role:"dealer"}))).status,403);
+ configure({commandError:{code:"22023",message:"Closed auction with a verified highest bidder required."}});
+ assert.equal((await sell(request({carId:scenario.target.id,role:"dealer"}))).status,409);
+ const call=scenario.calls.find((c:any)=>Array.isArray(c)&&c[0]==="rpc");
+ assert.equal(call[2].p_action,"sale");assert.equal(call[2].p_actor_id,actorId);
+ assert(!scenario.calls.some((c:any)=>Array.isArray(c)&&c[0]==="cars"&&c[1]==="update"));
+});

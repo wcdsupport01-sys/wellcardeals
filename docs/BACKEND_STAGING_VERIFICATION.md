@@ -1,11 +1,10 @@
 # Supabase staging verification — 2026-10-26
 
 The backend upgrade is deployed and tested on **wellcardeals-test.**
-(`efxroxbhwfdwxlbtsaxp`). Production (`zdbtlwdjmpvcmwsnkopc`) was accessed
-through its separate read-only credential. No production SQL, Edge deployment,
-customer bids, account password resets or provider messages were performed.
-Production main still points to `db4e724`; the upgrade is on
-`codex/backend-reliability`.
+(`efxroxbhwfdwxlbtsaxp`). Production (`zdbtlwdjmpvcmwsnkopc`) schema inspection used its separate
+read-only credential. This document records the staging checks; the subsequent
+production release used the separate deployment token and is recorded in
+[BACKEND_PRODUCTION_VERIFICATION.md](BACKEND_PRODUCTION_VERIFICATION.md).
 
 ## Restoration and deployment
 
@@ -18,7 +17,7 @@ trigger. All 29 application tables were empty. No customer rows, passwords,
 storage objects, provider credentials or background schedules were copied.
 
 Both checked-in v3 SQL stages were applied to the test project, and the
-read-only release check returned `database_checks_passed`. All 17 checked-in
+read-only release check returned `database_checks_passed`. All 18 checked-in
 Edge functions are deployed and active. Because secure proxy credentials are
 resolved only on outbound requests, the CLI rejected the local token format;
 the authenticated Management API multipart deployment succeeded. No credential
@@ -60,7 +59,7 @@ and associated records. The disposable staging schema remains available for
 further verification. Durable throttle counters and earlier synthetic outbox
 entries may remain; no provider delivery schedule/credentials were copied.
 
-Local tests additionally passed 18 Node contracts, 14 Deno contracts, all Edge
+Local tests additionally passed 18 Node contracts, 15 Deno contracts, all Edge
 entry-point type checks, PostgreSQL/PostgREST concurrency/RLS/privacy tests,
 mobile Chromium buyer and staff workflows, and the production build. Existing
 repository lint issues remain: 73 errors and 3 warnings.
@@ -72,18 +71,17 @@ The read-only aggregate preflight found 31 cars and 8 dealer bids. Three
 No live auction had an invalid clock, no live Buy Now listing had a missing or
 nonpositive price, no submitted agent request lacked its car, no profile had a
 null role/status, and the outbox had no pending/failed jobs at the time of the
-check. Both legacy document buckets are public in production; stage 2 makes
+check. At preflight time both legacy document buckets were public; stage 2 makes
 these private and the matching frontend resolves signed documents.
 
 The new guard prevents a mismatched cached price from confirming a lower
 winner. The three legacy records still need a business review/reconciliation;
 the release does not silently rewrite historical financial results.
 
-Before production release, obtain a project-scoped production deployment
-credential in secure Environment secrets, confirm database/storage backups and
-a restore path, review those three records, and coordinate SQL stage 1, Edge,
-matching Netlify frontend, then SQL stage 2. Production deployment credentials
+The subsequent production release followed SQL stage 1, Edge, matching Netlify
+frontend, then SQL stage 2, after a private recovery backup/local restore rehearsal.
+The three legacy records still require business reconciliation. Production deployment credentials
 must remain separate from the source read-only and test-project credentials.
 Google Sheets delivery, SMS/email providers, production backups and Netlify
-publication have not been verified by these tests. These results establish a
-tested staging release, not a guarantee of zero future errors.
+publication are outside these staging checks; the later production verification
+is recorded separately. These tests do not guarantee zero future errors.

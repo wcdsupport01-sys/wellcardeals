@@ -1,12 +1,12 @@
 # Backend reliability upgrade — release candidate
 
-Source branch: `codex/backend-reliability`. Production main remains `db4e724` until
-the database, Edge and frontend rollout is completed. On 2026-10-26 the source
-schema was read through a project-scoped, read-only connection and restored
-without customer rows to the separate Supabase test project. Both database
-stages and all 17 Edge functions are now deployed there. Authenticated workflow
-results and production rollout blockers are recorded in
-[BACKEND_STAGING_VERIFICATION.md](BACKEND_STAGING_VERIFICATION.md).
+The release is live on production main and https://wellcardeals.com as of
+2026-10-26. Both SQL stages, the matching frontend and all 18 Edge functions
+were deployed and verified. Source branch: `codex/backend-reliability`.
+[Production verification](BACKEND_PRODUCTION_VERIFICATION.md) records the
+private recovery backup/restore rehearsal, authenticated production checks and
+remaining limits. [Staging verification](BACKEND_STAGING_VERIFICATION.md)
+records the independent test-project checks.
 
 ## What changed
 
@@ -63,6 +63,9 @@ results and production rollout blockers are recorded in
   If Auth creation itself loses its reply before returning a user ID, an administrator
   must reconcile the trusted application binding in Auth; never adopt/reset an
   existing login merely by matching applicant email.
+- The separately deployed legacy `push-winner-to-sheet` handler is now checked
+  in and delegates to the approved-admin transactional sale action. It cannot
+  bypass highest-bid/auction-close checks or append a duplicate best-effort sale.
 - Legacy profile approval/code generation remains compatible, is limited to
   approved admin/manager callers and is audited. Code verification locks its row,
   handles null safely and retains failed-attempt counts. The legacy code is not
@@ -109,7 +112,7 @@ results and production rollout blockers are recorded in
 
 - 18 Node contracts cover auth races, bid helpers, lookup failures, durable request
   IDs, concurrent client saves, signing and capped/paged read failures.
-- 14 Deno contracts cover auth/password/input policies, handler delegation,
+- 15 Deno contracts cover auth/password/input policies, handler delegation,
   provisioning uncertainty, conflict responses and Sheet column preservation.
 - All Edge entry points type-check against the real pinned Supabase SDK.
 - PostgreSQL 16 tests replay metadata-derived tables, columns, defaults and
@@ -186,8 +189,9 @@ stage 2, a frontend rollback must retain the catalog/command-compatible client.
 Do not restore permissive public grants or public document buckets as a shortcut.
 Keep the schema/audit data; prepare a forward fix for any discovered trigger conflict.
 
-Production access remains read-only; the deployment credential is scoped only
-to the test project. No Netlify management credential is available. Production
-SQL/Edge/frontend release, backups/restore, delivery providers and the three
-legacy closed-auction standing mismatches still require a coordinated rollout.
-These staging results must not be described as a completed production upgrade.
+Production was deployed using the separate project-scoped production token;
+the source credential remains read-only and the test token remains test-scoped.
+GitHub main triggered the verified Netlify production build. Recovery preparation
+and actual checks are recorded in BACKEND_PRODUCTION_VERIFICATION.md. The three
+legacy auction standing mismatches, recurring off-environment backups/full restore
+and real provider delivery checks remain separate items.
