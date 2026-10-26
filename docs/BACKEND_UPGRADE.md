@@ -129,6 +129,16 @@ inspection/history/queue trigger body. Test a restored staging copy before produ
 
 ## Coordinated rollout
 
+`supabase/backend_release_check.sql` is a read-only, one-row configuration check
+that can be run before and after each database stage. It reports command/access
+checks separately and always labels Edge/Netlify deployment as **not checked**.
+It exposes no customer rows, credentials or function bodies. The database suite
+runs it inside a READ ONLY transaction before either migration, after stage 1,
+and after stage 2; it also detects a disabled request guard and a reintroduced
+private-column SELECT grant. A passed result covers the listed configuration
+checks, not function-body integrity or all possible policy/customization changes.
+
+
 1. Securely capture the current DB schema/data and storage object backup; prove a
    restore on staging. Storage metadata alone is not a backup of its objects.
    On that copy, review existing inspection, privilege/price guards, bid validation,

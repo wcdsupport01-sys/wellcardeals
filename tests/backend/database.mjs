@@ -31,9 +31,24 @@ try {
   for(let i=0;i<60;i++) {try {docker(['exec',container,'pg_isready','-h','127.0.0.1','-U','postgres']);break;} catch {await new Promise(r=>setTimeout(r,250));}}
   sql(readFileSync('tests/backend/production-schema-fixture.sql','utf8'));
   sql(readFileSync('supabase/dealer_auction_v2_migration.sql','utf8'));
+  const releaseCheck=()=>JSON.parse(sql('BEGIN READ ONLY;'+readFileSync('supabase/backend_release_check.sql','utf8')+'COMMIT;'));
+  assert.equal(releaseCheck().state,'commands_not_installed');
   sql(readFileSync('supabase/backend_commands_v3.sql','utf8'));
+  assert.equal(releaseCheck().state,'commands_ready_access_pending');
   sql("GRANT SELECT(seller_phone) ON public.cars TO authenticated");
   sql(readFileSync('supabase/backend_access_v3.sql','utf8'));
+  const release=releaseCheck();
+  assert.equal(release.state,'database_checks_passed',JSON.stringify(release));
+  assert.equal(release.edge_and_netlify,'not_checked');
+  // Configuration drift must never be presented as a fully applied release.
+  sql('ALTER TABLE public.car_purchase_requests DISABLE TRIGGER backend_request_guard');
+  assert.equal(releaseCheck().access_checks.request_guards_active,false);
+  assert.equal(releaseCheck().state,'commands_ready_access_pending');
+  sql('ALTER TABLE public.car_purchase_requests ENABLE TRIGGER backend_request_guard');
+  sql('GRANT SELECT(seller_phone) ON public.cars TO authenticated');
+  assert.equal(releaseCheck().access_checks.raw_private_car_columns_blocked,false);
+  sql('REVOKE SELECT(seller_phone) ON public.cars FROM authenticated');
+  assert.equal(releaseCheck().state,'database_checks_passed');
   for (const [actor,role,status] of [[admin,'admin','approved'],[manager,'manager','approved'],[lead,'team_lead','approved'],[agent,'agent','approved'],[buyer,'buyer','approved'],[dealer,'dealer','approved'],[other,'buyer','approved'],[suspended,'admin','suspended']]) {
     sql(`INSERT INTO auth.users(id,email) VALUES('${actor}','user${actor.slice(-2)}@example.test'); INSERT INTO public.profiles(id,role,status,email) VALUES('${actor}','${role}','${status}','user${actor.slice(-2)}@example.test')`);
   }
@@ -150,5 +165,5 @@ try {
       console.log('PASS: PostgREST catalog FK embeds, anonymous masking, owner request embeds, dealer reads and report RPC');
     } finally {docker(['rm','-f',rest]);}
   }
-  console.log('PASS: transactions, concurrency, role/RLS, receipts, privacy, private storage, public forms and provisioning');
+  console.log('PASS: read-only release states/drift, transactions, concurrency, role/RLS, receipts, privacy, private storage, public forms and provisioning');
 } finally { docker(['rm','-f',container]); }
