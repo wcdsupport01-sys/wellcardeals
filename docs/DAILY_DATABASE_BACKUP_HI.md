@@ -42,10 +42,7 @@ Repository → **Actions → Encrypted database backup → Run workflow → main
 `Export, verify and encrypt database` aur `Retain encrypted snapshot` dono green
 hone chahiye. Run ke Artifacts mein `.wcdbackup` file milti hai.
 
-Workflow template [yahan](../scripts/backup/database-backup.workflow.yml) hai.
-Repository mein iska active path `.github/workflows/database-backup.yml` hai.
-Agar integration workflow-file publish karne ki permission bhi deny kare, owner
-GitHub ke Add file → Create new file se isi path par template commit kar sakta hai.
+Active workflow [yahan](../.github/workflows/database-backup.yml) publish ho gaya hai.
 
 Schedule roz **02:00 IST** hai; GitHub scheduled runs delay ho sakte hain.
 Encrypted artifacts **14 din** retain hote hain. Public repositories mein
