@@ -50,3 +50,8 @@ verify_jwt = false
 
 [functions.dealer-login-lookup]
 verify_jwt = false
+
+# Scheduled worker verifies its own x-sync-secret; existing schedules do not
+# provide a browser JWT. Keep the deployed gateway behavior on redeploy.
+[functions.sync-google-sheets]
+verify_jwt = false
