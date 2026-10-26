@@ -106,7 +106,7 @@ DECLARE v_actor uuid; v_roles text[]; v_op public.backend_operations; v_car publ
  v_fields jsonb:=coalesce(p_payload->'fields','{}'); v_result jsonb; v_id uuid; v_key text;
  v_hash text; v_base jsonb; v_next public.cars; v_exists boolean; v_profile public.profiles; v_app public.dealer_applications; v_dealer_id text;
 BEGIN
- v_roles:=CASE WHEN p_action='agent_submit' THEN ARRAY['agent'] WHEN p_action='agent_review' THEN ARRAY['admin','manager','team_lead'] ELSE ARRAY['admin','manager'] END;
+ v_roles:=CASE WHEN p_action='purchase_request' THEN ARRAY['buyer'] WHEN p_action='agent_submit' THEN ARRAY['agent'] WHEN p_action='agent_review' THEN ARRAY['admin','manager','team_lead'] ELSE ARRAY['admin','manager'] END;
  v_actor:=public.backend_actor(p_actor_id,v_roles);
  IF p_operation_id IS NULL OR jsonb_typeof(p_payload) IS DISTINCT FROM 'object' OR octet_length(p_payload::text)>131072 THEN RAISE EXCEPTION 'Invalid command.' USING ERRCODE='22023'; END IF;
  v_hash:=encode(sha256(convert_to(p_payload::text,'UTF8')),'hex');
@@ -135,7 +135,23 @@ BEGIN
    ELSE v_fields:=v_fields||jsonb_build_object('inspected_by',NULL,'inspected_at',NULL); END IF;
   END IF;
  END IF;
- IF p_action='agent_submit' THEN
+ IF p_action='purchase_request' THEN
+  IF length(trim(coalesce(p_payload->>'phone','')))>32 OR length(regexp_replace(coalesce(p_payload->>'phone',''),'[^0-9]','','g')) NOT BETWEEN 8 AND 15 THEN RAISE EXCEPTION 'Enter a valid phone number.' USING ERRCODE='22023'; END IF;
+  IF length(coalesce(p_payload->>'message',''))>2000 THEN RAISE EXCEPTION 'Message must be under 2,000 characters.' USING ERRCODE='22023'; END IF;
+  SELECT * INTO v_car FROM public.cars WHERE id=(p_payload->>'car_id')::uuid FOR UPDATE;
+  IF NOT FOUND OR v_car.status<>'live' OR v_car.visibility<>'visible' OR v_car.access_type<>'all' OR v_car.listing_type<>'buy_now_only' OR coalesce(v_car.buy_now_price,0)<=0 THEN RAISE EXCEPTION 'This car is not available for direct purchase.' USING ERRCODE='22023'; END IF;
+  IF (p_payload->>'expected_price')::numeric IS DISTINCT FROM v_car.buy_now_price THEN RAISE EXCEPTION 'Price changed. Refresh the listing before confirming.' USING ERRCODE='22023'; END IF;
+  -- Parent row lock serializes requests for this car; repeat enquiries update
+  -- their pending contact details instead of creating duplicate active leads.
+  SELECT * INTO v_purchase FROM public.car_purchase_requests WHERE car_id=v_car.id AND buyer_id=v_actor AND status IN ('pending','contacted') ORDER BY created_at DESC,id DESC LIMIT 1 FOR UPDATE;
+  IF FOUND THEN
+   UPDATE public.car_purchase_requests SET buyer_phone=trim(p_payload->>'phone'),offer_price=v_car.buy_now_price,message=nullif(trim(p_payload->>'message'),''),updated_at=clock_timestamp() WHERE id=v_purchase.id RETURNING * INTO v_purchase;
+  ELSE
+   INSERT INTO public.car_purchase_requests(car_id,buyer_id,buyer_name,buyer_phone,offer_price,message,status)
+    SELECT v_car.id,v_actor,coalesce(nullif(full_name,''),'Buyer'),trim(p_payload->>'phone'),v_car.buy_now_price,nullif(trim(p_payload->>'message'),''),'pending' FROM public.profiles WHERE id=v_actor RETURNING * INTO v_purchase;
+  END IF;
+  v_result:=jsonb_build_object('request',to_jsonb(v_purchase));
+ ELSIF p_action='agent_submit' THEN
   IF v_fields ?| ARRAY['handled_by','created_by','dealer_id','is_verified','is_featured','c2c_enabled','negotiated_price','negotiation_notes','negotiation_updated_at','tl_rejection_reason'] THEN RAISE EXCEPTION 'Staff-controlled fields.' USING ERRCODE='42501'; END IF;
   IF nullif(p_payload->>'request_id','') IS NOT NULL THEN
    SELECT * INTO v_request FROM public.car_auction_requests WHERE id=(p_payload->>'request_id')::uuid FOR UPDATE;
@@ -200,7 +216,7 @@ BEGIN
    IF v_car.status='sold' THEN
     IF NOT v_car.dealer_winner_marked_sold THEN RAISE EXCEPTION 'Car already sold to another buyer.' USING ERRCODE='22023'; END IF;
    ELSE
-    IF v_car.status NOT IN ('live','closed') OR v_car.auction_end IS NULL OR v_car.auction_end>clock_timestamp() OR v_car.highest_bidder_id_dealer IS NULL OR NOT EXISTS(SELECT 1 FROM public.car_bids WHERE car_id=v_id AND bidder_id=v_car.highest_bidder_id_dealer AND amount=v_car.current_bid_dealer AND bidder_role='dealer') OR coalesce(v_car.current_bid_dealer,0)<=0 THEN RAISE EXCEPTION 'Closed auction with a verified highest bidder required.' USING ERRCODE='22023'; END IF;
+    IF v_car.status NOT IN ('live','closed') OR v_car.auction_end IS NULL OR v_car.auction_end>clock_timestamp() OR v_car.highest_bidder_id_dealer IS NULL OR NOT EXISTS(SELECT 1 FROM public.car_bids WHERE car_id=v_id AND bidder_id=v_car.highest_bidder_id_dealer AND amount=v_car.current_bid_dealer AND bidder_role='dealer') OR v_car.current_bid_dealer IS DISTINCT FROM (SELECT max(amount) FROM public.car_bids WHERE car_id=v_id AND bidder_role='dealer') OR coalesce(v_car.current_bid_dealer,0)<=0 THEN RAISE EXCEPTION 'Closed auction with a verified highest bidder required.' USING ERRCODE='22023'; END IF;
     v_car:=public.backend_write_car(jsonb_build_object('status','sold','dealer_winner_marked_sold',true,'dealer_winner_marked_sold_at',clock_timestamp()),v_id);
    END IF;
   END IF;
@@ -210,7 +226,7 @@ BEGIN
   SELECT * INTO v_car FROM public.cars WHERE id=v_purchase.car_id FOR UPDATE;
   IF v_purchase.status<>'completed' THEN
    IF v_purchase.status='cancelled' OR v_car.status<>'live' OR v_car.listing_type<>'buy_now_only' OR coalesce(v_car.buy_now_price,0)<=0 THEN RAISE EXCEPTION 'This purchase cannot be completed.' USING ERRCODE='22023'; END IF;
-   v_car:=public.backend_write_car(jsonb_build_object('status','sold','highest_bidder_id_buyer',v_purchase.buyer_id,'buyer_winner_marked_sold',true,'buyer_winner_marked_sold_at',clock_timestamp()),v_car.id);
+   v_car:=public.backend_write_car(jsonb_build_object('status','sold','highest_bidder_id_buyer',v_purchase.buyer_id,'highest_bidder_name_buyer',coalesce(nullif(v_purchase.buyer_name,''),(SELECT full_name FROM public.profiles WHERE id=v_purchase.buyer_id),'Buyer'),'current_bid_buyer',v_car.buy_now_price,'buyer_winner_marked_sold',true,'buyer_winner_marked_sold_at',clock_timestamp()),v_car.id);
    UPDATE public.car_purchase_requests SET status='completed',updated_at=clock_timestamp() WHERE id=v_purchase.id;
   END IF;
  ELSIF p_action IN ('dealer_approve','dealer_code') THEN
@@ -246,6 +262,66 @@ END $$;
 REVOKE ALL ON FUNCTION public.backend_car_command(text,jsonb,uuid,uuid) FROM PUBLIC,anon;
 GRANT EXECUTE ON FUNCTION public.backend_car_command(text,jsonb,uuid,uuid) TO authenticated,service_role;
 REVOKE ALL ON FUNCTION public.backend_is_staff(text[]),public.backend_car_json(public.cars) FROM PUBLIC;
+-- Production has an older trigger with an unqualified car_bids reference and
+-- a hard-coded Rs 5,000 step. It runs under the RPC's empty search_path.
+CREATE OR REPLACE FUNCTION public.validate_bid_amount()
+RETURNS trigger LANGUAGE plpgsql SET search_path='' AS $$
+DECLARE v_car public.cars; v_current numeric; v_step numeric; v_min numeric;
+BEGIN
+ IF NEW.bidder_role IS DISTINCT FROM 'dealer' THEN RAISE EXCEPTION 'Direct buyers must use purchase requests.' USING ERRCODE='22023'; END IF;
+ IF NEW.amount IS NULL OR NEW.amount::text IN ('NaN','Infinity','-Infinity') OR NEW.amount<=0 OR NEW.amount>9007199254740991 OR trunc(NEW.amount)<>NEW.amount THEN RAISE EXCEPTION 'Enter a valid whole-rupee bid.' USING ERRCODE='22023'; END IF;
+ SELECT * INTO v_car FROM public.cars WHERE id=NEW.car_id FOR UPDATE;
+ IF NOT FOUND THEN RAISE EXCEPTION 'Auction not found.' USING ERRCODE='P0002'; END IF;
+ v_step:=coalesce(nullif(v_car.minimum_increment,0),5000);
+ IF v_step<0 THEN RAISE EXCEPTION 'Invalid auction increment.' USING ERRCODE='22023'; END IF;
+ v_current:=greatest(coalesce(nullif(v_car.current_bid_dealer,0),v_car.base_price_dealer,v_car.starting_bid,0),coalesce((SELECT max(amount) FROM public.car_bids WHERE car_id=NEW.car_id AND bidder_role='dealer'),0));
+ v_min:=ceil(greatest(v_current+v_step,coalesce(v_car.reserve_price,0)));
+ IF NEW.amount<v_min THEN RAISE EXCEPTION 'Bid must be at least Rs %.',v_min USING ERRCODE='22023'; END IF;
+ RETURN NEW;
+END $$;
+
+-- The restored production outbox must mirror accepted prices and real labels,
+-- including an assigned agent before its request has been linked to the new car.
+CREATE OR REPLACE FUNCTION public.enqueue_cars_master_sync()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
+DECLARE v_agent uuid; v_agent_name text; v_handler_name text; v_brand text; v_model text; v_fuel text; v_transmission text; v_price numeric;
+BEGIN
+ SELECT coalesce((SELECT assigned_agent_id FROM public.car_auction_requests WHERE car_id=NEW.id ORDER BY updated_at DESC LIMIT 1),NEW.submitted_by_agent_id) INTO v_agent;
+ SELECT full_name INTO v_agent_name FROM public.profiles WHERE id=v_agent;
+ SELECT full_name INTO v_handler_name FROM public.profiles WHERE id=NEW.handled_by;
+ SELECT name INTO v_brand FROM public.brands WHERE id=NEW.brand_id;
+ SELECT name INTO v_model FROM public.models WHERE id=NEW.model_id;
+ SELECT name INTO v_fuel FROM public.fuel_types WHERE id=NEW.fuel_type_id;
+ SELECT name INTO v_transmission FROM public.transmissions WHERE id=NEW.transmission_id;
+ v_price:=CASE WHEN NEW.status='sold' AND NEW.dealer_winner_marked_sold THEN NEW.current_bid_dealer WHEN NEW.status='sold' AND NEW.buyer_winner_marked_sold THEN NEW.current_bid_buyer ELSE coalesce(NEW.buy_now_price,NEW.reserve_price,NEW.base_price_dealer) END;
+ INSERT INTO public.sheet_sync_queue(sheet_tab,row_key,payload) VALUES('Cars_Master',NEW.id::text,jsonb_build_object(
+ 'timestamp',clock_timestamp(),'car_id',NEW.id,'make_model_year',coalesce(nullif(NEW.vehicle_title,''),concat_ws(' ',v_brand,v_model,NEW.year)),
+ 'variant',NEW.variant,'mileage_km',NEW.mileage_km,'fuel_type',v_fuel,'transmission',v_transmission,'location',NEW.location,
+ 'seller_info',concat_ws(' · ',nullif(NEW.seller_name,''),nullif(NEW.seller_phone,''),nullif(NEW.created_by,'')),
+ 'status',NEW.status,'visibility',NEW.visibility,'assigned_agent_id',v_agent,'assigned_agent_name',v_agent_name,
+ 'handled_by_id',NEW.handled_by,'handled_by_name',v_handler_name,'reserve_price',NEW.reserve_price,'starting_bid',NEW.starting_bid,
+ 'buy_now_price',NEW.buy_now_price,'final_price',v_price,'listing_type',NEW.listing_type,'inspection_status',CASE WHEN NEW.inspected_at IS NOT NULL THEN 'inspected' ELSE 'not_inspected' END,
+ 'listing_date',NEW.created_at,'live_until',NEW.auction_end,'sold_date',CASE WHEN NEW.status='sold' THEN coalesce(NEW.dealer_winner_marked_sold_at,NEW.buyer_winner_marked_sold_at) END));
+ RETURN NEW;
+END $$;
+CREATE OR REPLACE FUNCTION public.enqueue_sales_log_sync()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
+DECLARE v_name text; v_price numeric;
+BEGIN
+ IF NEW.status='sold' AND OLD.status IS DISTINCT FROM 'sold' THEN
+  v_name:=CASE WHEN NEW.dealer_winner_marked_sold THEN NEW.highest_bidder_name_dealer ELSE NEW.highest_bidder_name_buyer END;
+  v_price:=CASE WHEN NEW.dealer_winner_marked_sold THEN NEW.current_bid_dealer WHEN NEW.buyer_winner_marked_sold THEN NEW.current_bid_buyer WHEN NEW.listing_type='buy_now_only' THEN NEW.buy_now_price ELSE NEW.current_bid_dealer END;
+  INSERT INTO public.sheet_sync_queue(sheet_tab,row_key,payload) VALUES('Sales_Log',NEW.id::text,jsonb_build_object('timestamp',clock_timestamp(),'car_id',NEW.id,'buyer_details',v_name,'final_sale_price',v_price,'sale_type',CASE WHEN NEW.dealer_winner_marked_sold THEN 'Auction Won' ELSE 'Buy Now' END,'closing_date',clock_timestamp(),'commission_margin',NULL));
+ END IF;
+ RETURN NEW;
+END $$;
+CREATE OR REPLACE FUNCTION public.enqueue_agents_directory_sync()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
+BEGIN
+ IF NEW.role='agent' THEN INSERT INTO public.sheet_sync_queue(sheet_tab,row_key,payload) VALUES('Agents_Directory',NEW.id::text,jsonb_build_object('timestamp',clock_timestamp(),'agent_id',NEW.id,'agent_code',NEW.agent_code,'full_name',NEW.full_name,'phone',NEW.phone,'email',NEW.email,'id_proof_ref',NEW.license_url,'account_created',NEW.created_at,'active_status',NEW.status)); END IF;
+ RETURN NEW;
+END $$;
+
 -- Refresh reviewed auction reads to use the same privacy rules.
 CREATE OR REPLACE FUNCTION public.dealer_auction_snapshot(p_car_id uuid)
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
@@ -311,7 +387,7 @@ BEGIN
   END IF;
   v_increment := coalesce(nullif(v_car.minimum_increment, 0), 5000);
   IF v_increment < 0 THEN RAISE EXCEPTION 'Invalid auction increment.' USING ERRCODE = '22023'; END IF;
-  v_min := ceil(greatest(coalesce(nullif(v_car.current_bid_dealer, 0), v_car.base_price_dealer, v_car.starting_bid, 0)
+  v_min := ceil(greatest(greatest(coalesce(nullif(v_car.current_bid_dealer, 0), v_car.base_price_dealer, v_car.starting_bid, 0), coalesce((SELECT max(amount) FROM public.car_bids WHERE car_id=p_car_id AND bidder_role='dealer'),0))
     + v_increment, coalesce(v_car.reserve_price, 0)));
   IF p_amount < v_min THEN RAISE EXCEPTION 'Bid must be at least Rs %. Refresh and review the new price.', v_min USING ERRCODE = '22023'; END IF;
 

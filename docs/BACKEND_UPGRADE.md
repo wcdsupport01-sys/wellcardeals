@@ -1,9 +1,12 @@
 # Backend reliability upgrade — release candidate
 
 Source branch: `codex/backend-reliability`. Production main remains `db4e724` until
-the database, Edge and frontend rollout is completed. The metadata supplied on
-2026-10-25 was used to build and test this change. It does not establish that
-production functions, delivery providers or backups have been deployed/verified.
+the database, Edge and frontend rollout is completed. On 2026-10-26 the source
+schema was read through a project-scoped, read-only connection and restored
+without customer rows to the separate Supabase test project. Both database
+stages and all 17 Edge functions are now deployed there. Authenticated workflow
+results and production rollout blockers are recorded in
+[BACKEND_STAGING_VERIFICATION.md](BACKEND_STAGING_VERIFICATION.md).
 
 ## What changed
 
@@ -18,8 +21,8 @@ production functions, delivery providers or backups have been deployed/verified.
   default. Stage 1 gives NEW rows a false default; it does not change stored flags.
   This flag alone is not an implemented forced-password-change mechanism.
 - `backend_car_command` rechecks the approved actor under a lock. Create/edit,
-  agent submission/review, auction sale, direct purchase completion, archival and
-  dealer approval write their operation receipt and actor audit in one transaction.
+  agent submission/review, auction sale, buyer purchase requests/completion,
+  archival and dealer approval write their operation receipt and actor audit in one transaction.
   Idempotency keys are scoped to actor/action/payload. An uncertain reply reuses
   the same key; double clicks share a pending request. Listing forms retain the
   uploaded payload during an uncertain same-page retry instead of uploading new
@@ -33,7 +36,17 @@ production functions, delivery providers or backups have been deployed/verified.
   count as changes, and editing a description cannot reset the standing bid.
   The auction clock is checked after the row lock; hidden/future auctions reject
   bids. Withdrawn listings remain in the bidding dealer's history.
-- Dealer sales require an ended auction and an actual matching highest bid.
+- The deployed legacy bid trigger is replaced with a schema-qualified validator
+  that respects the car's increment and dealer-only bid history. Its old unqualified
+  table name failed under the bidding RPC's empty search path. The RPC checks
+  historical bids as well as the standing cache when calculating its minimum.
+- The buyer Buy Now confirmation handler is implemented and displays the actual
+  Buy Now price. The command locks the listing, verifies the quoted price and
+  buyer identity, and reuses an active enquiry instead of inserting duplicate
+  leads. Its receipt contains only that buyer's request. Realtime detail updates
+  reload the authorized catalog rather than merging raw table payloads.
+- Dealer sales require an ended auction and an actual matching highest bid,
+  equal to the highest amount in dealer bid history.
   Direct purchase completion locks request+car; competing completions cannot
   sell the same car twice. These are staff sale confirmations, not payment
   collection or proof of funds. Public C2C/PDI/contact statuses track their
@@ -64,8 +77,9 @@ production functions, delivery providers or backups have been deployed/verified.
   identifiers. Request guards enforce initial state/ownership, protect assignments,
   logins, commissions and financial fields, validate amounts/location, and prevent
   direct purchase-completion bypasses. Old permissive policies are replaced as a
-  set. Public submissions have a per-contact/account throttle; this is not an
-  IP/CAPTCHA gateway and changing contact details can evade it.
+  set. Direct purchase inserts use the verified command, and browser roles lose
+  legacy TRUNCATE/REFERENCES/TRIGGER privileges that RLS cannot govern. Public
+  submissions have a per-contact/account throttle; this is not an IP/CAPTCHA gateway and changing contact details can evade it.
 - Anonymous car-media writes are removed. Dealer/sell request buckets become
   private, with owner/staff reads and bounded types/sizes. Existing dealer profile
   URLs and new canonical object references resolve to ten-minute signed URLs.
@@ -81,6 +95,9 @@ production functions, delivery providers or backups have been deployed/verified.
   C2C filters/actions now use the actual database status values.
 - Postgres audit records are authoritative. Listing/sale endpoints rely on the
   existing durable database outbox instead of duplicate best-effort Sheet appends.
+  Reviewed outbox triggers now preserve real make/model labels, initial agent
+  assignment, dealer codes and the accepted sale price even if an auction has
+  an optional Buy Now price.
   The Sheet worker has a service-only renewable lease, supports Sales_Log,
   coalesces repeated keys and writes RAW values. It maps by existing headers and
   preserves cells absent from a partial payload instead of overwriting headers or
@@ -96,16 +113,18 @@ production functions, delivery providers or backups have been deployed/verified.
   provisioning uncertainty, conflict responses and Sheet column preservation.
 - All Edge entry points type-check against the real pinned Supabase SDK.
 - PostgreSQL 16 tests replay metadata-derived tables, columns, defaults and
-  constraints, then v2 + both v3 stages. Assertions cover roles/RLS, privacy,
+  constraints and reviewed live inspection/history/outbox/privilege triggers,
+  then v2 + both v3 stages. Assertions cover roles/RLS, privacy,
   concurrent purchase and assigned submissions, timestamps, sale conditions,
   audit/idempotency, private object policies, form throttling, profile approval,
   provisioning, worker leases and aggregates above 1,000 rows.
 - PostgREST 13 checks real catalog foreign-key embeds, anonymous masking,
   dealer/owner reads and staff report RPCs with synthetic JWTs.
 - Mobile Chromium checks the actual AuthProvider, buyer error/retry/removal,
-  agent review, purchase completion and team-lead permission UI.
+  buyer confirmation/retry and quoted price, agent review, purchase completion
+  and team-lead permission UI.
 - The production build passes. Repository-wide lint still has existing frontend
-  issues (77 errors, 3 warnings in this checkout). A successful build is not a clean lint run.
+  issues (73 errors, 3 warnings in this checkout). A successful build is not a clean lint run.
 
 ```sh
 node --test tests/auth-session.test.js tests/dealer-auction.test.js tests/rcLookupApi.test.js tests/backend-operations.test.js
@@ -122,10 +141,11 @@ PLAYWRIGHT_MODULE=/path/to/playwright/index.mjs node tests/backend/browser.mjs
 PLAYWRIGHT_MODULE=/path/to/playwright/index.mjs node tests/backend/workflows-browser.mjs
 ```
 
-The synthetic fixture contains no customer rows. Legacy function/trigger bodies
-were NOT in the export, and the old negotiation view is represented only as a
-relation for REVOKE testing. Tests do not establish compatibility with every live
-inspection/history/queue trigger body. Test a restored staging copy before production.
+The synthetic fixture contains no customer rows. The reviewed legacy trigger
+bodies are retained in `tests/backend/legacy-live-triggers.sql`. The complete
+source schema, including its actual negotiation view and event trigger, was also
+restored and tested on managed Supabase staging. This is a schema restoration,
+not a customer-data or storage-object backup/restore exercise.
 
 ## Coordinated rollout
 
@@ -166,6 +186,8 @@ stage 2, a frontend rollback must retain the catalog/command-compatible client.
 Do not restore permissive public grants or public document buckets as a shortcut.
 Keep the schema/audit data; prepare a forward fix for any discovered trigger conflict.
 
-No production database administrator, authenticated Supabase CLI deployment or
-Netlify management access is present in this workspace. These source changes
-must not be described as a deployed, completely verified production upgrade.
+Production access remains read-only; the deployment credential is scoped only
+to the test project. No Netlify management credential is available. Production
+SQL/Edge/frontend release, backups/restore, delivery providers and the three
+legacy closed-auction standing mismatches still require a coordinated rollout.
+These staging results must not be described as a completed production upgrade.

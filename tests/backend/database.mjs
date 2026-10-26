@@ -1,5 +1,5 @@
 // Synthetic schema derived from the 2026-10-25 metadata, never customer rows.
-// Legacy trigger bodies/Auth/Storage HTTP behavior need a staging copy too.
+// Reviewed live trigger bodies are included; managed Auth/Storage HTTP uses staging.
 import assert from 'node:assert/strict';
 import { spawnSync, spawn } from 'node:child_process';
 import { createHmac } from 'node:crypto';
@@ -30,6 +30,7 @@ try {
   docker(['run','-d','--name',container,'-e','POSTGRES_PASSWORD=synthetic-local-test','postgres:16','-c','wal_level=logical']);
   for(let i=0;i<60;i++) {try {docker(['exec',container,'pg_isready','-h','127.0.0.1','-U','postgres']);break;} catch {await new Promise(r=>setTimeout(r,250));}}
   sql(readFileSync('tests/backend/production-schema-fixture.sql','utf8'));
+  sql(readFileSync('tests/backend/legacy-live-triggers.sql','utf8'));
   sql(readFileSync('supabase/dealer_auction_v2_migration.sql','utf8'));
   const releaseCheck=()=>JSON.parse(sql('BEGIN READ ONLY;'+readFileSync('supabase/backend_release_check.sql','utf8')+'COMMIT;'));
   assert.equal(releaseCheck().state,'commands_not_installed');
@@ -70,15 +71,21 @@ try {
   sql(as(newDealer,`INSERT INTO public.profiles(id,role,status) VALUES('${newDealer}','dealer','pending')`));
   denied(newDealer,`UPDATE public.profiles SET status='approved' WHERE id='${newDealer}'`,/Protected/);
   sql(as(manager,`UPDATE public.profiles SET status='approved' WHERE id='${newDealer}'`));
-  denied(buyer,`INSERT INTO public.car_purchase_requests(car_id,buyer_id,status) VALUES('${car}','${buyer}','completed')`,/start pending/);
-  denied(buyer,`INSERT INTO public.car_purchase_requests(car_id,buyer_id,status) VALUES('${car}','${other}','pending')`,/ownership/);
-  sql(as(buyer,`INSERT INTO public.car_purchase_requests(id,car_id,buyer_id) VALUES('${id(101)}','${car}','${buyer}')`));
-  sql(as(other,`INSERT INTO public.car_purchase_requests(id,car_id,buyer_id) VALUES('${id(102)}','${car}','${other}')`));
-  denied(manager,`UPDATE public.car_purchase_requests SET status='completed' WHERE id='${id(101)}'`,/verified purchase/);
-  const results=await Promise.all([asyncSql(cmd(admin,'purchase_complete',{id:id(101)})),asyncSql(cmd(manager,'purchase_complete',{id:id(102)}))]);
+  denied(buyer,`INSERT INTO public.car_purchase_requests(car_id,buyer_id,status) VALUES('${car}','${buyer}','completed')`,/permission denied/);
+  assert.throws(()=>ok(dealer,'purchase_request',{car_id:car,phone:'9999999999',message:'',expected_price:100000}),/cannot perform/);
+  assert.throws(()=>ok(buyer,'purchase_request',{car_id:car,phone:'9999999999',message:'',expected_price:1}),/Price changed/);
+  const order1=ok(buyer,'purchase_request',{car_id:car,phone:'9999999999',message:'Contact me',expected_price:100000},id(101));
+  assert.equal(ok(buyer,'purchase_request',{car_id:car,phone:'9999999999',message:'Contact me',expected_price:100000},id(101)).request.id,order1.request.id);
+  const order2=ok(other,'purchase_request',{car_id:car,phone:'8888888888',message:'',expected_price:100000},id(102));
+  const repeated=ok(buyer,'purchase_request',{car_id:car,phone:'9999999998',message:'Updated contact',expected_price:100000});
+  assert.equal(repeated.request.id,order1.request.id);
+  assert.equal(sql(`SELECT count(*) FROM public.car_purchase_requests WHERE car_id='${car}' AND buyer_id='${buyer}'`),'1');
+  denied(manager,`UPDATE public.car_purchase_requests SET status='completed' WHERE id='${order1.request.id}'`,/verified purchase/);
+  const results=await Promise.all([asyncSql(cmd(admin,'purchase_complete',{id:order1.request.id})),asyncSql(cmd(manager,'purchase_complete',{id:order2.request.id}))]);
   assert.equal(results.filter(r=>r.code===0).length,1,'one competing buyer must win');
   assert.equal(sql(`SELECT count(*) FROM public.car_purchase_requests WHERE car_id='${car}' AND status='completed'`),'1');
   assert.equal(sql(`SELECT status FROM public.cars WHERE id='${car}'`),'sold');
+  assert.equal(sql(`SELECT payload->>'final_sale_price' FROM public.sheet_sync_queue WHERE sheet_tab='Sales_Log' AND row_key='${car}' ORDER BY id DESC LIMIT 1`),'100000');
   assert.throws(()=>ok(admin,'update',{id:car,fields:{buy_now_price:1}}),/Sold cars/);
   sql(`INSERT INTO public.car_auction_requests(id,buyer_id,status,assigned_agent_id,agent_status,listing_type,vehicle_title) VALUES('${id(103)}','${buyer}','approved','${agent}','assigned','buy_now_only','Assigned car')`);
   const assigned={request_id:id(103),fields:{vehicle_title:'Agent car',buy_now_price:120000}};
@@ -92,19 +99,26 @@ try {
   assert.throws(()=>ok(lead,'agent_review',{id:linked,decision:'rejected',reason:'stale review'}),/Agent submission/);
   const standalone=ok(agent,'agent_submit',{fields:{vehicle_title:'Standalone',buy_now_price:200000}});
   assert.equal(standalone.car.tl_review_status,'pending');
-  const auction=ok(admin,'create',{fields:{vehicle_title:'Dealer auction',listing_type:'auction',access_type:'dealer_only',visibility:'visible',status:'live',base_price_dealer:100000,auction_end:new Date(Date.now()+3600000).toISOString()}}).car_id;
+  const auction=ok(admin,'create',{fields:{vehicle_title:'Dealer auction',listing_type:'auction',access_type:'dealer_only',visibility:'visible',status:'live',base_price_dealer:100000,buy_now_price:999999,minimum_increment:1000,auction_end:new Date(Date.now()+3600000).toISOString()}}).car_id;
   assert.equal(sql(as('',`SELECT count(*) FROM public.cars_catalog WHERE id='${auction}'`,'anon')),'0');
   assert.equal(sql(as(dealer,`SELECT count(*) FROM public.cars_catalog WHERE id='${auction}'`)),'1');
-  const bid=JSON.parse(sql(as(dealer,`SELECT public.place_dealer_bid_v2('${auction}',105000,'${id(104)}')`)));
-  assert.equal(bid.amount,105000);assert.equal(bid.car.seller_phone,undefined);
-  ok(admin,'update',{id:auction,fields:{base_price_dealer:100000,auction_end:new Date(bid.car.auction_end).toISOString(),vehicle_title:'Edited description'}});
-  assert.equal(sql(`SELECT current_bid_dealer FROM public.cars WHERE id='${auction}'`),'105000');
+  const bid=JSON.parse(sql(as(dealer,`SELECT public.place_dealer_bid_v2('${auction}',101000,'${id(104)}')`)));
+  assert.equal(bid.amount,101000);assert.equal(bid.car.seller_phone,undefined);
+  ok(admin,'update',{id:auction,fields:{base_price_dealer:100000,buy_now_price:999999,minimum_increment:1000,auction_end:new Date(bid.car.auction_end).toISOString(),vehicle_title:'Edited description'}});
+  assert.equal(sql(`SELECT current_bid_dealer FROM public.cars WHERE id='${auction}'`),'101000');
+  sql(as(dealer,`SELECT public.place_dealer_bid_v2('${auction}',102000,'${id(108)}')`));
   assert.throws(()=>ok(admin,'update',{id:auction,fields:{base_price_dealer:1}}),/terms cannot change/);
   assert.throws(()=>ok(admin,'sale',{id:auction,track:'dealer'}),/Closed auction/);
   sql(`UPDATE public.cars SET auction_end=now()-interval '1 minute' WHERE id='${auction}'`);
+  sql(`UPDATE public.cars SET current_bid_dealer=101000 WHERE id='${auction}'`);
+  assert.throws(()=>ok(admin,'sale',{id:auction,track:'dealer'}),/verified highest bidder/);
+  sql(`UPDATE public.cars SET current_bid_dealer=102000 WHERE id='${auction}'`);
   ok(admin,'sale',{id:auction,track:'dealer'});
   ok(admin,'sale',{id:auction,track:'dealer'});
   assert.equal(sql(`SELECT status FROM public.cars WHERE id='${auction}'`),'sold');
+  assert.equal(sql(`SELECT payload->>'final_sale_price' FROM public.sheet_sync_queue WHERE sheet_tab='Sales_Log' AND row_key='${auction}' ORDER BY id DESC LIMIT 1`),'102000');
+  assert.equal(sql(`SELECT payload->>'assigned_agent_id' FROM public.sheet_sync_queue WHERE sheet_tab='Cars_Master' AND row_key='${linked}' ORDER BY id LIMIT 1`),agent);
+  assert.throws(()=>sql(as(buyer,'TRUNCATE public.cars CASCADE')),/permission denied/);
   assert.throws(()=>ok(admin,'sale',{id:auction,track:'buyer'}),/Direct buyer/);
   // Anonymous storage writes fail; own dealer docs + staff reads survive.
   assert.throws(()=>sql(as('',"INSERT INTO storage.objects(bucket_id,name) VALUES('car-media','anonymous/file.png')",'anon')),/row-level security/);

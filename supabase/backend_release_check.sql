@@ -62,6 +62,9 @@ access_checks AS (
    NOT coalesce(has_any_column_privilege(r.name,to_regclass('public.'||t.name),'UPDATE'),true) AND
    NOT coalesce(has_table_privilege(r.name,to_regclass('public.'||t.name),'DELETE'),true))
  FROM (VALUES ('anon'),('authenticated')) r(name) CROSS JOIN (VALUES ('cars'),('car_bids')) t(name)
+ UNION ALL SELECT 'purchase_requests_use_command', NOT coalesce(has_any_column_privilege('anon',to_regclass('public.car_purchase_requests'),'INSERT'),true) AND NOT coalesce(has_any_column_privilege('authenticated',to_regclass('public.car_purchase_requests'),'INSERT'),true)
+ UNION ALL SELECT 'browser_maintenance_privileges_blocked', coalesce(bool_and(NOT has_table_privilege(r.name,c.oid,'TRUNCATE') AND NOT has_table_privilege(r.name,c.oid,'REFERENCES') AND NOT has_table_privilege(r.name,c.oid,'TRIGGER')),false)
+ FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace CROSS JOIN (VALUES ('anon'),('authenticated')) r(name) WHERE n.nspname='public' AND c.relkind IN ('r','p')
  UNION ALL SELECT 'private_document_buckets', count(*)=2 AND coalesce(bool_and(NOT public),false)
  FROM storage.buckets WHERE id IN ('dealer-docs','sell-requests-media')
  UNION ALL SELECT 'storage_row_security_enabled', coalesce(

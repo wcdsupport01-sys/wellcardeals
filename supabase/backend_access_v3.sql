@@ -54,6 +54,7 @@ BEGIN
  IF TG_TABLE_NAME='dealer_applications' AND (v->>'dealer_id' IS NOT NULL OR v->>'auth_user_id' IS NOT NULL) THEN RAISE EXCEPTION 'Dealer login fields are staff controlled.' USING ERRCODE='22023'; END IF;
  IF TG_TABLE_NAME='car_purchase_requests' THEN
   SELECT * INTO v_car FROM public.cars WHERE id=(v->>'car_id')::uuid;
+  IF (v->>'offer_price')::numeric IS DISTINCT FROM v_car.buy_now_price THEN RAISE EXCEPTION 'Price changed. Refresh the listing before confirming.' USING ERRCODE='22023'; END IF;
   IF NOT FOUND OR v_car.listing_type<>'buy_now_only' OR v_car.status<>'live' OR v_car.visibility<>'visible' OR v_car.access_type<>'all' THEN RAISE EXCEPTION 'This car is not available for direct purchase.' USING ERRCODE='22023'; END IF;
  END IF;
  FOR k IN SELECT unnest(ARRAY['offer_price','expected_price','km_driven','odometer_km']) LOOP
@@ -132,6 +133,14 @@ END LOOP; END $$;
 -- The centralized write guard and command policies replace this older,
 -- undocumented price guard that conflicts with authorized team-lead review.
 DROP TRIGGER IF EXISTS trg_prevent_non_admin_price_tampering ON public.cars;
+
+REVOKE INSERT ON public.car_purchase_requests FROM PUBLIC,anon,authenticated;
+-- Browser APIs do not need table maintenance or DDL privileges. These bypass
+-- row-level security and must not survive the older blanket table grants.
+DO $$ DECLARE r record;
+BEGIN FOR r IN SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relkind IN ('r','p') LOOP
+ EXECUTE format('REVOKE TRUNCATE,REFERENCES,TRIGGER ON public.%I FROM PUBLIC,anon,authenticated',r.relname);
+END LOOP; END $$;
 
 -- Known public storage policies are replaced together; unrelated buckets stay.
 DO $$ DECLARE p record;

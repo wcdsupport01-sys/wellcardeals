@@ -1,3 +1,4 @@
+import { backendCommand } from "../lib/backendCommands";
 import React, { useEffect, useState, useCallback } from "react";
 import { useParams, Link } from "react-router-dom";
 import {
@@ -111,7 +112,7 @@ const RealCarDetail = () => {
     setLoading(true);
     const { data, error } = await supabase.from("cars_catalog").select("*").eq("id", id).maybeSingle();
     if (error) setError(error.message);
-    else setCar(data);
+    else { setError(null); setCar(data); }
     setLoading(false);
   }, [id]);
 
@@ -121,10 +122,10 @@ const RealCarDetail = () => {
     if (!isSupabaseConfigured) return;
     const channel = supabase.channel(`car-${id}`)
       .on("postgres_changes", { event: "UPDATE", schema: "public", table: "cars", filter: `id=eq.${id}` },
-        (payload) => setCar((prev) => (prev ? { ...prev, ...payload.new } : payload.new)))
+        () => load())
       .subscribe();
     return () => supabase.removeChannel(channel);
-  }, [id]);
+  }, [id, load]);
 
   const countdown = useCountdownTo(car?.auction_end);
 
@@ -170,7 +171,7 @@ const RealCarDetail = () => {
 
   const currentBid = isApprovedDealer ? car.current_bid_dealer : car.current_bid_buyer;
   const basePrice = isApprovedDealer ? car.base_price_dealer : car.base_price_buyer;
-  const displayPrice = currentBid || basePrice;
+  const displayPrice = car.listing_type === "buy_now_only" ? car.buy_now_price : currentBid || basePrice;
   const minIncrement = car.minimum_increment || 5000;
 
   // EMI calculation — standard reducing-balance formula. loanAmount is the
@@ -200,6 +201,19 @@ const RealCarDetail = () => {
   const inspectedCount = inspectionEntries.filter((e) => e.status).length;
   const isInspected = Boolean(car.inspected_at) && inspectedCount > 0;
   const overallInspectionStatus = !isInspected ? null : inspectionEntries.some((e) => e.status === "poor") ? "poor" : inspectionEntries.some((e) => e.status === "fair") ? "fair" : "good";
+
+  async function submitBuyRequest() {
+    const phone = buyPhone.trim() || profile?.phone?.trim() || "";
+    if (role !== "buyer") { setBuyError("Sign in with a buyer account to send a purchase request."); return; }
+    if (phone.replace(/\D/g, "").length < 8 || phone.replace(/\D/g, "").length > 15) { setBuyError("Enter a valid phone number."); return; }
+    setBuyError(""); setBuySubmitting(true);
+    try {
+      const result = await backendCommand("purchase_request", { car_id:car.id, phone, message:buyMessage.trim(), expected_price:Number(car.buy_now_price) });
+      if (!result?.request?.id) throw new Error("Your request could not be confirmed. Please retry.");
+      setBuySent(true); setBuyOpen(false);
+    } catch (failure) { setBuyError(failure.message || "Your request could not be confirmed. Please retry."); }
+    finally { setBuySubmitting(false); }
+  }
 
   async function submitC2cRequest() {
     setC2cError("");
@@ -456,7 +470,7 @@ const RealCarDetail = () => {
           </div>
 
           <div className="mt-3 space-y-2">
-            {role !== "dealer" && !buyOpen && (
+            {car.listing_type === "buy_now_only" && car.status === "live" && (role === "buyer" || !user) && !buyOpen && !buySent && (
               user ? (
                 <button onClick={() => setBuyOpen(true)} className="w-full flex items-center justify-center gap-2 bg-navy-900 hover:bg-navy-700 text-white font-semibold py-3 rounded-xl transition">
                   <ShoppingCart size={16} /> Buy Now — {formatINR(displayPrice)}
@@ -470,7 +484,7 @@ const RealCarDetail = () => {
           </div>
 
           <p className="flex items-center gap-1.5 text-[11px] text-emerald-600 mt-3">
-            <Lock size={12} /> Secure Transaction — 100% Safe & Secure Payments
+            <Lock size={12} /> Our team will confirm availability and purchase details
           </p>
 
           {!isApprovedDealer && role !== "dealer" && (
