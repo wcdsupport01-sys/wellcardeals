@@ -11,6 +11,7 @@ import { supabase, isSupabaseConfigured } from "../lib/supabaseClient";
 import { useAuth } from "../auth/AuthContext";
 import CarCard from "../components/CarCard";
 import DealerBidPanel from "../dealer/DealerBidPanel";
+import DealerCarDetail from "../dealer/DealerCarDetail";
 import { INSPECTION_CATEGORIES } from "../admin/lib/lookups";
 
 const TABS = ["Overview", "Features", "Inspection Report", "Documents", "Similar Cars"];
@@ -333,6 +334,12 @@ const RealCarDetail = () => {
     { icon: FileText, label: "Fast RC Transfer" },
   ];
 
+  if (isApprovedDealer && car.listing_type !== "buy_now_only") {
+    return <DealerCarDetail key={`${car.id}:${user.id}`} car={car} user={user} onCarChange={setCar} similarCars={similarCars}
+      actions={<><ShareButton onShare={shareCar} justCopied={justCopied} /><WishlistButton isSaved={Boolean(wishlistRowId)} saving={wishlistSaving} onToggle={toggleWishlist} /></>}
+      actionError={wishlistError || shareError} />;
+  }
+
   return (
     <div className={`max-w-6xl mx-auto px-4 py-8 ${isApprovedDealer && car.listing_type !== "buy_now_only" ? "pb-28 md:pb-8" : ""}`}>
       {/* Breadcrumb */}
@@ -556,7 +563,7 @@ const RealCarDetail = () => {
       </div>
 
       {/* Auction Panel — full width, moved down from the sidebar */}
-      <div className={isApprovedDealer ? "dealer-auction-section" : "bg-navy-gradient text-white rounded-2xl p-5 md:p-6 mt-6"}>
+      <div className="bg-navy-gradient text-white rounded-2xl p-5 md:p-6 mt-6">
         {car.listing_type !== "buy_now_only" ? (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {isApprovedDealer ? (

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ArrowRight, Gavel, RefreshCw, ShieldCheck, WifiOff, X } from "lucide-react";
 import { Link } from "react-router-dom";
+import { createPortal } from "react-dom";
 import "./dealer-workspace.css";
 import { supabase } from "../lib/supabaseClient";
 import { useAuth } from "../auth/AuthContext";
@@ -384,7 +385,7 @@ export default function DealerBidPanel({ car: initialCar, onCarChange }) {
         ) : <p>No saved bid history loaded.</p>}
         {history.total > 5 && <p>Showing the latest 5 bids. Contact support for the complete record.</p>}
       </div>
-      {review !== null && (
+      {review !== null && createPortal(
         <div className="dealer-review-overlay" ref={dialogRef} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="bid-review-title">
           <div className="dealer-review-card">
             <p className="dealer-eyebrow">ONE LAST LOOK</p>
@@ -403,7 +404,8 @@ export default function DealerBidPanel({ car: initialCar, onCarChange }) {
             </div>
             {pending && !busy && <button disabled={!online} onClick={() => sendBid(pending)} className="dealer-retry-link">Check / retry same bid</button>}
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
     </section>
   );

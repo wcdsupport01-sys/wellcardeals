@@ -47,3 +47,32 @@ fixture now includes the current `AuthRecovery` export and protected
 Deployment follows the existing Netlify connection to `main`. Approved dealers
 see the interface at `/dealer/dashboard` after signing in. Manrope's SIL Open
 Font License is shipped at `/font-licenses/Manrope-OFL.txt`.
+
+## Approved vehicle-detail preview implemented
+
+After reviewing a separate vehicle-detail preview, the owner approved the
+gallery-left, bidding-right design. Approved dealers viewing auction listings
+now get a single gallery, thumbnails/fullscreen controls, real vehicle highlights
+and a sticky bidding column. On smaller screens the sections stack and a fixed
+bottom action opens the same bid review. Overview, inspection, features,
+documents and similar listings use tabs without unmounting the bid panel or
+discarding an entered amount. No second large vehicle photo is added.
+
+Fuel and transmission names are looked up from the listing's actual lookup IDs.
+Inspection displays only saved categories, statuses and notes, with explicit
+missing-data states. Public document links are validated as HTTP(S). Recognized
+private documents are signed for ten minutes with the current user's storage
+permissions only when the Documents tab is opened; denied access has no link.
+Buyer and fixed-price dealer listings keep the previous layout and EMI panel.
+
+The review dialog renders through a React portal so the sticky column does not
+put bid confirmation behind navigation. Bid submission, pending-request recovery
+and all financial handlers remain unchanged. This release needs no backend
+migration. Tests use intercepted auth/API/storage fixtures, including denied
+private-document access, and never place a production bid.
+
+Additional validation: `tests/dealer-car-detail-browser.mjs` covers desktop,
+mobile/tablet widths, one gallery, deduplication, keyboard/focus fullscreen,
+actual fuel/transmission labels, saved inspection notes, document access,
+retained amount entry across tabs, full-viewport bid review, empty data and the
+unchanged buyer/fixed-price views. Run it with the same Vite/Playwright setup.
