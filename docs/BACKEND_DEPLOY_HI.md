@@ -16,9 +16,11 @@ tables, 37,813 catalog records; snapshot mein 31 cars, 9 bids aur 16 profiles ha
 14-day retention aur key/token maintenance likhi hai. Full media/platform restore
 alag work hai.
 
-3 purane closed auctions ka saved price bid history se kam hai. Inka business
-review baaki hai; naya sale command mismatched price ko winner confirm nahi
-karega. Read-only
+Owner ne 28 October ko confirm kiya: 3 purane closed auctions ki bids test thi.
+Unke 5 original bid records archive karne wali SQL restored copy par pass hai;
+live apply abhi baaki hai. [Exact SQL Editor steps](CONFIRMED_TEST_BIDS_HI.md)
+follow karein. Naya sale command apply hone tak mismatched price ko winner
+confirm nahi karega. Read-only
 [backend_data_preflight.sql](../supabase/backend_data_preflight.sql) sirf counts
 check karta hai, data change nahi karta.
 

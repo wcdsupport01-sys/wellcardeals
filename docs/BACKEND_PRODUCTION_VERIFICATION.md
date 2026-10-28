@@ -89,11 +89,19 @@ and rotate the read-only backup token before expiry. Setup and recovery details:
 
 ## Remaining items
 
-Three legacy **closed auctions** have a cached dealer price below their saved
-bid history. Their financial history was preserved for business review; the new
-sale guard refuses to confirm a lower cached bid as the winner. Use the read-only
-`supabase/backend_data_preflight.sql` to check aggregate counters. These records
-need reconciliation before staff can confirm their sales.
+On 28 October the owner confirmed the three legacy closed auctions used test
+bids, not genuine offers. The targeted
+[`archive_confirmed_test_bids_20261028.sql`](../supabase/archive_confirmed_test_bids_20261028.sql)
+preserves their five exact bid records in an admin-readable archive before
+removing them from active bidding; no car, price, winner or sale fields change.
+The actual encrypted GitHub snapshot was restored locally and this cleanup
+passed: all other table fingerprints stay unchanged, dealer-price mismatches
+fall from 3 to 0, changed-data scenarios roll back, archive privacy is enforced
+and reruns preserve later activity. **Production execution remains pending:**
+the existing production deployment credential returned HTTP 401. The repository
+owner can apply the complete reviewed SQL through the production SQL Editor;
+see [CONFIRMED_TEST_BIDS_HI.md](CONFIRMED_TEST_BIDS_HI.md). Until applied, the sale
+guard continues to reject the three inconsistent cached results.
 
 Full media/platform restore, actual email/SMS/payment and external Sheet write
 delivery were not established by this release. Existing repository-wide
