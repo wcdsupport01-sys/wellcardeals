@@ -1,12 +1,19 @@
 # Daily encrypted database backup
 
-Backup code ready aur tested hai. Pehla encrypted snapshot banakar local
-PostgreSQL 17 restore check pass hua: **33 public tables, 3 account tables aur
-37,813 imported vehicle records**. Encrypted file lagbhag 10.6 MB hai.
+**Daily backup schedule enabled hai.** Repository owner ne dono GitHub secrets
+add kar diye. 28 October 2026 ka [pehla manual workflow run](https://github.com/wcdsupport01-sys/wellcardeals/actions/runs/40653635130)
+successful hua aur encrypted artifact GitHub par save hua. Koi paid plan upgrade
+nahi kiya gaya.
 
-**Automatic schedule abhi activate/verify nahi hua.** Codex ke GitHub integration
-ko Actions Secrets API par HTTP 403 milta hai. Neeche ke do secrets repository
-owner ko GitHub settings mein bharne hain. Koi paid plan upgrade nahi kiya gaya.
+Usi uploaded file ko download karke saved recovery key se authenticate/decrypt
+kiya aur disposable PostgreSQL 17 mein restore verify kiya: **33 public tables,
+3 account tables aur 37,813 imported vehicle records**. Exact content
+fingerprints, account generated fields, foreign keys aur sequence values pass
+hain. Snapshot mein 31 cars, 9 bids aur 16 profiles hain; archive lagbhag 10.6 MB
+hai. Check ke baad temporary decrypted file aur container remove kar diye.
+
+Schedule roz **02:00 IST** hai; pehla verified run manual tha. Neeche future
+setup/token rotation aur recovery ke reference steps hain.
 
 ## 1. Read-only backup token
 

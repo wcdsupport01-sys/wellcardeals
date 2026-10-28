@@ -30,7 +30,8 @@ This export is an **upgrade-recovery backup**, not a full Supabase disaster
 recovery backup: Auth passwords/sessions and provider secrets were not exported;
 unchanged public car-media bytes were not duplicated. It is retained privately
 in this environment, not uploaded to GitHub or an external backup service.
-Scheduled, off-environment backups and full project restore remain separate work.
+Daily encrypted off-environment database backups were added and verified on
+28 October as described below. Full media/platform restore remains separate work.
 
 ## Deployed checks
 
@@ -56,10 +57,35 @@ Scheduled, off-environment backups and full project restore remain separate work
   Its scheduled HTTP calls returned 200. Queue handling/column mapping/leases
   were tested; no external test Sheet append, SMS/email or payment was sent.
 
-After the production checks, counts remain **31 cars, 8 bids and 16 profiles**.
+At the 26 October production verification, counts were **31 cars, 8 bids and
+16 profiles**.
 Both document buckets are private. Existing customer bids, passwords and sale
 results were not rewritten. Existing background schedules and provider secrets
 were retained.
+
+## Daily database backup — 2026-10-28
+
+The repository owner added both backup secrets and manually started
+[workflow run 40653635130](https://github.com/wcdsupport01-sys/wellcardeals/actions/runs/40653635130)
+on `main` at `bdb8d59`. Encryption/failure tests, the read-only database export
+and encrypted artifact upload all succeeded. GitHub reports the workflow active;
+its daily schedule is 20:30 UTC / 02:00 IST, with 14-day artifact retention.
+The first verified execution was manual; scheduled executions are best effort.
+
+The actual uploaded artifact (10,566,740 bytes as an artifact ZIP) was downloaded
+and authenticated with the separately saved recovery key. A disposable local
+PostgreSQL 17 restored all 33 public tables, 3 account tables and 37,813 imported
+catalog records. Exact row-content fingerprints, catalog completeness, generated
+account fields, foreign keys and sequence positions passed. Its snapshot contains
+31 cars, 9 bids and 16 profiles; customer activity after the release is preserved.
+The temporary plaintext and restore container were removed after verification.
+No production records were changed by this backup or recovery check.
+
+The archive includes account password hashes and identities, encrypted, plus
+storage inventory. Media file bytes, active sessions and provider/platform
+secrets are outside this database archive. Keep the independent recovery key
+and rotate the read-only backup token before expiry. Setup and recovery details:
+[DAILY_DATABASE_BACKUP_HI.md](DAILY_DATABASE_BACKUP_HI.md).
 
 ## Remaining items
 
@@ -69,9 +95,6 @@ sale guard refuses to confirm a lower cached bid as the winner. Use the read-onl
 `supabase/backend_data_preflight.sql` to check aggregate counters. These records
 need reconciliation before staff can confirm their sales.
 
-Daily encrypted database backup tooling and a first encrypted restore test are
-now available; GitHub Secrets setup and the first successful scheduled/workflow
-run remain pending. See [DAILY_DATABASE_BACKUP_HI.md](DAILY_DATABASE_BACKUP_HI.md).
 Full media/platform restore, actual email/SMS/payment and external Sheet write
 delivery were not established by this release. Existing repository-wide
 frontend lint issues remain (73 errors, 3 warnings); the production build and

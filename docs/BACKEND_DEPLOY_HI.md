@@ -3,13 +3,17 @@
 26 October 2026 ko website **https://wellcardeals.com** par matching frontend,
 dono SQL stages aur 18 Edge functions release ho gaye. Database ke 17 checks,
 real test logins, bidding/purchase transactions, private documents aur mobile
-buyer page ke checks pass hain. Existing 31 cars, 8 bids aur 16 profiles safe hain.
+buyer page ke checks pass hain. Us verification mein existing 31 cars, 8 bids aur
+16 profiles safe the.
 
 [Production verification](BACKEND_PRODUCTION_VERIFICATION.md) mein backup,
 checks aur remaining work likha hai. Upgrade se pehle private recovery backup
-banaya aur local restore/migration test kiya gaya. Daily encrypted database
-backup code/restore test ready hai; [GitHub ke do secrets](DAILY_DATABASE_BACKUP_HI.md)
-add karke pehla workflow run verify karna baaki hai. Full media/platform restore
+banaya aur local restore/migration test kiya gaya. 28 October ko daily encrypted
+database backup schedule enable hua aur pehla manual GitHub run pass hua. Usi
+uploaded backup se local restore bhi verify hua: 33 public tables, 3 account
+tables, 37,813 catalog records; snapshot mein 31 cars, 9 bids aur 16 profiles hain.
+[Daily backup details](DAILY_DATABASE_BACKUP_HI.md) mein roz 02:00 IST ka schedule,
+14-day retention aur key/token maintenance likhi hai. Full media/platform restore
 alag work hai.
 
 3 purane closed auctions ka saved price bid history se kam hai. Inka business
