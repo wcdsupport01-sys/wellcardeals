@@ -556,22 +556,23 @@ const RealCarDetail = () => {
       </div>
 
       {/* Auction Panel — full width, moved down from the sidebar */}
-      <div className="bg-navy-gradient text-white rounded-2xl p-5 md:p-6 mt-6">
+      <div className={isApprovedDealer ? "dealer-auction-section" : "bg-navy-gradient text-white rounded-2xl p-5 md:p-6 mt-6"}>
         {car.listing_type !== "buy_now_only" ? (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {isApprovedDealer ? (
-              <div className="space-y-5">
-                <p className="text-xs uppercase tracking-widest text-blue-200">Dealer auction</p>
-                <h2 className="text-2xl font-bold">{car.vehicle_title}</h2>
-                <p className="text-sm text-blue-100">Review the vehicle condition, inspection report and documents before confirming a bid.</p>
-                <dl className="grid grid-cols-2 gap-4 rounded-2xl border border-white/15 bg-white/5 p-4 text-sm">
-                  <div><dt className="text-xs text-white/60">Starting price</dt><dd className="font-semibold mt-1">{formatINR(car.base_price_dealer ?? car.starting_bid)}</dd></div>
-                  <div><dt className="text-xs text-white/60">Reserve floor</dt><dd className="font-semibold mt-1">{formatINR(car.reserve_price)}</dd></div>
-                  <div><dt className="text-xs text-white/60">Minimum increment</dt><dd className="font-semibold mt-1">{formatINR(minIncrement)}</dd></div>
-                  <div><dt className="text-xs text-white/60">Auction closes</dt><dd className="font-semibold mt-1">{car.auction_end ? new Date(car.auction_end).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) + ' IST' : 'Not scheduled'}</dd></div>
+              <div className="dealer-auction-overview">
+                {images[0] && <img src={images[0]} alt={car.vehicle_title} className="dealer-auction-cover" loading="lazy" onError={(event) => { event.currentTarget.hidden = true; }} />}
+                <p className="dealer-eyebrow">DEALER AUCTION</p>
+                <h2>{car.vehicle_title}</h2>
+                <p>Review the vehicle condition, inspection report and documents before confirming a bid.</p>
+                <dl className="dealer-auction-facts">
+                  <div><dt>Starting price</dt><dd>{formatINR(car.base_price_dealer ?? car.starting_bid)}</dd></div>
+                  <div><dt>Reserve floor</dt><dd>{formatINR(car.reserve_price)}</dd></div>
+                  <div><dt>Minimum increment</dt><dd>{formatINR(minIncrement)}</dd></div>
+                  <div><dt>Auction closes</dt><dd>{car.auction_end ? new Date(car.auction_end).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) + ' IST' : 'Not scheduled'}</dd></div>
                 </dl>
-                <p className="text-sm text-blue-100">The highest bid is subject to seller approval. Your confirmed purchase will appear after the team marks the deal as sold.</p>
-                <Link to="/dealer/dashboard?tab=bids" className="inline-block rounded-xl border border-white/30 px-4 py-2 text-sm font-semibold">View my auctions</Link>
+                <p>The highest bid is subject to seller approval. Your confirmed purchase will appear after the team marks the deal as sold.</p>
+                <Link to="/dealer/dashboard?tab=bids" className="dealer-secondary-button">View my auctions</Link>
               </div>
             ) : (
             <div>

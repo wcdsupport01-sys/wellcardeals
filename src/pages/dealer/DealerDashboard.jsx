@@ -1,6 +1,10 @@
-import { useCallback, useEffect, useState } from "react";
-import { Link, useSearchParams } from "react-router-dom";
-import { Gavel, Heart, RefreshCw, Search, ArrowUpRight } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Link, useOutletContext, useSearchParams } from "react-router-dom";
+import {
+  ArrowLeft, ArrowRight, CalendarDays, Car, ChevronDown, Clock3,
+  Gauge, Gavel, Heart, LayoutGrid, List, MapPin, RefreshCw,
+  ScanLine, Search, ShieldCheck, TrendingUp, Trophy,
+} from "lucide-react";
 import { useAuth } from "../../auth/AuthContext";
 import { supabase } from "../../lib/supabaseClient";
 import {
@@ -13,15 +17,27 @@ import useAuctionClock from "../../dealer/useAuctionClock";
 import { BidStatus } from "../../dealer/DealerBidPanel";
 
 const TABS = [
-  ["live", "Live auctions"],
-  ["bids", "My bids"],
-  ["watchlist", "Watchlist"],
-  ["results", "Results"],
+  ["live", "Live auctions", Gavel, "Open for bidding"],
+  ["bids", "My bids", TrendingUp, "Your bidding activity"],
+  ["watchlist", "Watchlist", Heart, "Saved for a closer look"],
+  ["results", "Results", Trophy, "Your closed auctions"],
 ];
 const PAGE_SIZE = 24;
 
+function DealerVehiclePhoto({ image, title }) {
+  const [failed, setFailed] = useState(false);
+  if (!image || failed) {
+    return <div className="dealer-photo-placeholder"><Car aria-hidden="true" /><span>No vehicle photo</span></div>;
+  }
+  return <img src={image} alt={title} loading="lazy" onError={() => setFailed(true)} />;
+}
+
 export default function DealerDashboard() {
   const { user, profile } = useAuth();
+  const { openHelp } = useOutletContext();
+  const [layout, setLayout] = useState("grid");
+  const [citySearch, setCitySearch] = useState("");
+  const locationRef = useRef(null);
   const [params, setParams] = useSearchParams();
   const tab = TABS.some(([key]) => key === params.get("tab"))
     ? params.get("tab")
@@ -49,6 +65,15 @@ export default function DealerDashboard() {
   const instant = useAuctionClock();
   const [lastSync, setLastSync] = useState(0);
   const [clock, setClock] = useState(null);
+
+  useEffect(() => {
+    const dismissLocation = (event) => {
+      const details = locationRef.current;
+      if (details?.open && !details.contains(event.target)) details.open = false;
+    };
+    document.addEventListener("pointerdown", dismissLocation);
+    return () => document.removeEventListener("pointerdown", dismissLocation);
+  }, []);
 
   useEffect(() => {
     const id = setTimeout(() => {
@@ -182,213 +207,146 @@ export default function DealerDashboard() {
     !online || Boolean(error) || !lastSync || instant.mono - lastSync > 25000;
 
   return (
-    <div className="space-y-6">
-      <div className="rounded-3xl bg-gradient-to-br from-slate-950 via-blue-950 to-blue-800 text-white p-6 md:p-8">
-        <p className="text-xs uppercase tracking-widest text-blue-200 mb-2">
-          Approved dealer workspace
-        </p>
-        <h1 className="text-2xl md:text-3xl font-bold">Your auction desk</h1>
-        <p className="text-sm text-blue-100 mt-2">
-          {profile?.business_name || profile?.dealer_name || "Welcome back"}.
-          Track your bids and review every amount before you confirm.
-        </p>
-        <p className="text-xs text-blue-200 mt-4">
-          Highest bid ≠ confirmed purchase. Final sale requires team approval.
-        </p>
+    <div className="dealer-auction-desk">
+      <div className="dealer-heading-row">
+        <div>
+          <p className="dealer-eyebrow">WELCOME BACK{profile?.business_name || profile?.dealer_name ? `, ${profile.business_name || profile.dealer_name}` : ""}</p>
+          <h1>Your auction desk<span aria-hidden="true">.</span></h1>
+          <p className="dealer-intro">Good cars. Clear bids. Your next opportunity starts here.</p>
+        </div>
+        <div>
+          <div role="status" className={`dealer-market-state${stale ? " is-stale" : ""}`}>
+            <span className="dealer-state-dot" aria-hidden="true" />
+            <span>{!online ? "Offline · prices may be outdated" : stale ? (loading ? "Checking auction updates" : "Auction data needs refreshing") : "Live auction updates"}</span>
+          </div>
+          <p className="dealer-sync-caption">{lastSync ? `Verified ${Math.floor(Math.max(0, instant.mono - lastSync) / 1000)}s ago · refreshes every 15s` : "Checking the latest auction data"}</p>
+        </div>
       </div>
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+
+      <section className="dealer-stats" aria-label="Your auction overview">
+        {TABS.map((item) => {
+          const [key, label, Icon, description] = item;
+          return (
+          <button key={key} onClick={() => switchTab(key)}
+            className={`dealer-stat${tab === key ? " active" : ""}`}
+            aria-label={`${label} ${data?.summary[key] ?? "—"}`}>
+            <span className="dealer-stat-label">{label}</span>
+            <span className="dealer-stat-icon"><Icon size={17} aria-hidden="true" /></span>
+            <strong className="dealer-stat-value">{data?.summary[key] == null ? "—" : String(data.summary[key]).padStart(2, "0")}</strong>
+            <span className="dealer-stat-desc">{description}</span>
+          </button>
+          );
+        })}
+      </section>
+
+      <section className="dealer-guide">
+        <span className="dealer-guide-icon"><ScanLine size={21} aria-hidden="true" /></span>
+        <div><strong>A good bid starts with a closer look.</strong><p>Review the vehicle details and minimum amount before you confirm.</p></div>
+        <button onClick={openHelp}><span>How bidding works</span><ArrowRight size={16} aria-hidden="true" /></button>
+      </section>
+
+      <div className="dealer-tabs" role="tablist" aria-label="Auction views">
         {TABS.map(([key, label]) => (
-          <button
-            key={key}
-            onClick={() => switchTab(key)}
-            className={`text-left rounded-2xl border p-4 ${tab === key ? "bg-blue-50 border-blue-400" : "bg-white border-slate-200"}`}
-          >
-            <p className="text-xs text-slate-600">{label}</p>
-            <p className="text-2xl font-bold mt-2">
-              {data?.summary[key] ?? "—"}
-            </p>
+          <button role="tab" aria-selected={tab === key} key={key} className="dealer-tab" onClick={() => switchTab(key)}>
+            {label}<span className="dealer-tab-count">{data?.summary[key] ?? "—"}</span>
           </button>
         ))}
       </div>
-      <div className="flex flex-wrap gap-3 justify-between items-center">
-        <div
-          role="status"
-          className={`text-xs ${stale ? "text-amber-800" : "text-slate-500"}`}
-        >
-          {!online
-            ? "Offline · displayed prices may be outdated"
-            : stale
-              ? "Auction data needs refreshing"
-              : `Verified ${Math.floor(Math.max(0, instant.mono - lastSync) / 1000)}s ago · refreshes every 15s`}
+      <div className="dealer-toolbar">
+        <label className="dealer-search"><Search size={17} aria-hidden="true" />
+          <input aria-label="Search auctions" type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search by make, model or city..." />
+        </label>
+        <details className="dealer-location" ref={locationRef} onKeyDown={(event) => {
+          if (event.key === "Escape") { event.currentTarget.open = false; event.currentTarget.querySelector("summary")?.focus(); }
+        }}>
+          <summary><MapPin size={15} aria-hidden="true" />Location<ChevronDown size={13} aria-hidden="true" /></summary>
+          <form className="dealer-location-popover" onSubmit={(event) => {
+            event.preventDefault(); setQuery(citySearch.trim());
+            if (locationRef.current) { locationRef.current.open = false; locationRef.current.querySelector("summary")?.focus(); }
+          }}>
+            <label htmlFor="dealer-city-search">Search a city or location</label>
+            <input id="dealer-city-search" value={citySearch} onChange={(event) => setCitySearch(event.target.value)} placeholder="Enter a city or area" />
+            <button className="dealer-primary-button" type="submit">Find auctions <ArrowRight size={13} aria-hidden="true" /></button>
+          </form>
+        </details>
+        <div className="dealer-view-switch" aria-label="Display layout">
+          <button aria-label="Grid view" aria-pressed={layout === "grid"} onClick={() => setLayout("grid")}><LayoutGrid size={17} /></button>
+          <button aria-label="List view" aria-pressed={layout === "list"} onClick={() => setLayout("list")}><List size={17} /></button>
         </div>
-        <button
-          onClick={() => setRefresh((value) => value + 1)}
-          disabled={loading || !online}
-          className="flex items-center gap-2 text-sm text-blue-700 font-semibold disabled:opacity-40"
-        >
-          <RefreshCw size={15} /> Refresh
-        </button>
       </div>
-      <div
-        className="flex gap-2 overflow-x-auto pb-1"
-        role="tablist"
-        aria-label="Auction views"
-      >
-        {TABS.map(([key, label]) => (
-          <button
-            role="tab"
-            aria-selected={tab === key}
-            key={key}
-            onClick={() => switchTab(key)}
-            className={`shrink-0 rounded-full px-4 py-2 text-sm font-semibold ${tab === key ? "bg-blue-700 text-white" : "bg-white text-slate-600 border"}`}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
-      <label className="flex gap-2 items-center bg-white border rounded-xl p-3">
-        <Search size={18} className="text-slate-400" />
-        <input
-          aria-label="Search auctions"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search car or location"
-          className="bg-transparent w-full text-sm outline-none"
-        />
-      </label>
-      {error && (
-        <div
-          role="alert"
-          className="bg-red-50 text-red-800 rounded-xl p-4 text-sm"
-        >
-          {error} Previously loaded data may be outdated.
+      <div className="dealer-results-row">
+        <p>{viewData ? <><strong>{viewData.total} {viewData.total === 1 ? "car" : "cars"}</strong> {query ? `matching “${query}”` : "in this view"}</> : "Loading auction results…"}</p>
+        <div className="dealer-results-actions">
+          {query && <button onClick={() => { setQuery(""); setCitySearch(""); }}>Clear search</button>}
+          <span className="dealer-sort-note"><Clock3 size={13} aria-hidden="true" />{tab === "results" ? "Most recent first" : "Ending soonest"}</span>
+          <button onClick={() => setRefresh((value) => value + 1)} disabled={loading || !online}><RefreshCw size={14} className={loading ? "animate-spin" : undefined} aria-hidden="true" />Refresh</button>
         </div>
-      )}
-      {watchError && (
-        <p role="alert" className="text-red-700 text-sm">
-          {watchError}
-        </p>
-      )}
-      {loading && (
-        <p role="status" className="text-sm text-slate-500">
-          Updating auctions…
-        </p>
-      )}
+      </div>
+      {error && <div role="alert" className="dealer-error">{error} Previously loaded data may be outdated.</div>}
+      {watchError && <div role="alert" className="dealer-error">{watchError}</div>}
+      {loading && <p role="status" className="dealer-updating">Updating auctions…</p>}
       {!loading && !error && viewData?.items.length === 0 && (
-        <div className="bg-white rounded-2xl border p-8 text-center">
-          <Gavel className="mx-auto text-blue-500 mb-3" />
-          <h2 className="font-semibold">No auctions in this view</h2>
-          <p className="text-sm text-slate-500 mt-2">
-            Try another tab or clear your search. Use the heart on a car to add
-            it to your watchlist.
-          </p>
+        <div className="dealer-empty-state">
+          {tab === "watchlist" ? <Heart aria-hidden="true" /> : <Gavel aria-hidden="true" />}
+          <h2>No auctions in this view</h2>
+          <p>{query ? "Try another car or location, or clear your search." : "Try another tab. Use the heart on a car to add it to your watchlist."}</p>
+          {query && <button className="dealer-secondary-button" onClick={() => { setQuery(""); setCitySearch(""); }}>Clear search</button>}
         </div>
       )}
-      <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-4">
-        {viewData?.items.map((car) => (
-          <article
-            key={car.id}
-            className="bg-white rounded-2xl border border-slate-200 overflow-hidden"
-          >
-            <div className="relative h-40 bg-slate-100">
-              {car.thumbnail_url || car.images?.[0] ? (
-                <img
-                  src={car.thumbnail_url || car.images[0]}
-                  alt={car.vehicle_title}
-                  className="w-full h-full object-cover"
-                />
-              ) : (
-                <div className="h-full grid place-items-center text-slate-400 text-sm">
-                  No vehicle photo
+      <div className={`dealer-auction-grid${layout === "list" ? " is-list" : ""}`}>
+        {loading && !viewData && [0, 1, 2].map((key) => <div className="dealer-auction-skeleton" key={key} aria-hidden="true"><div /><div><span /><span /><span /></div></div>)}
+        {viewData?.items.map((car) => {
+          const remaining = timeLeft(car.auction_end, now);
+          const live = car.is_live && remaining !== "Ended";
+          const urgent = live && Date.parse(car.auction_end) - now <= 300000;
+          const image = car.thumbnail_url || car.images?.[0];
+          const detailUrl = `/cars/${car.id}#dealer-bidding`;
+          return (
+            <article key={car.id} className="dealer-auction-card">
+              <div className="dealer-car-photo">
+                <Link to={detailUrl} aria-label={`Open auction: ${car.vehicle_title}`}>
+                  <DealerVehiclePhoto key={image || "no-photo"} image={image} title={car.vehicle_title} />
+                </Link>
+                <span className="dealer-car-id">ID {String(car.id).slice(0, 8).toUpperCase()}</span>
+                <button onClick={() => toggleWatch(car)} disabled={Boolean(watchBusy) || !online}
+                  aria-label={`${car.watchlisted ? "Remove from" : "Add to"} watchlist: ${car.vehicle_title}`}
+                  aria-pressed={car.watchlisted} className="dealer-watch-button">
+                  <Heart size={17} fill={car.watchlisted ? "currentColor" : "none"} />
+                </button>
+                <span className={`dealer-live-label${!live || stale ? " is-closed" : ""}`}><span className="dealer-state-dot" aria-hidden="true" />{live ? (stale ? "CHECK STATUS" : "LIVE AUCTION") : "AUCTION CLOSED"}</span>
+              </div>
+              <div className="dealer-car-body">
+                <BidStatus car={car} userId={user.id} myBid={car.last_bid} now={now} />
+                <h2><Link to={detailUrl}>{car.vehicle_title}</Link></h2>
+                <p className="dealer-car-subtitle">{car.variant && <><span>{car.variant}</span><span aria-hidden="true">·</span></>}{car.location && <><MapPin size={12} aria-hidden="true" /><span>{car.location}</span></>}</p>
+                <div className="dealer-car-meta">
+                  {car.year && <span><CalendarDays size={12} aria-hidden="true" />{car.year}</span>}
+                  {car.mileage_km != null && Number.isFinite(Number(car.mileage_km)) && <span><Gauge size={12} aria-hidden="true" />{Number(car.mileage_km).toLocaleString("en-IN")} km</span>}
+                  <span title="Your saved bids on this car"><Gavel size={12} aria-hidden="true" />{car.my_bid_count ?? 0} saved bids</span>
                 </div>
-              )}
-              <button
-                onClick={() => toggleWatch(car)}
-                disabled={Boolean(watchBusy) || !online}
-                aria-label={`${car.watchlisted ? "Remove from" : "Add to"} watchlist: ${car.vehicle_title}`}
-                aria-pressed={car.watchlisted}
-                className="absolute right-3 top-3 rounded-full bg-white p-2 text-blue-700 shadow disabled:opacity-50"
-              >
-                <Heart
-                  size={18}
-                  fill={car.watchlisted ? "currentColor" : "none"}
-                />
-              </button>
-            </div>
-            <div className="p-4">
-              <BidStatus
-                car={car}
-                userId={user.id}
-                myBid={car.last_bid}
-                now={now}
-              />
-              <h2 className="font-bold mt-3">{car.vehicle_title}</h2>
-              <p className="text-xs text-slate-500 mt-1">
-                {[car.year, car.location].filter(Boolean).join(" · ")}
-              </p>
-              <dl className="grid grid-cols-2 gap-3 my-4 text-sm">
-                <div>
-                  <dt className="text-xs text-slate-500">Highest bid</dt>
-                  <dd className="font-bold">{money(car.current_bid_dealer)}</dd>
-                </div>
-                <div>
-                  <dt className="text-xs text-slate-500">Your last bid</dt>
-                  <dd className="font-semibold">
-                    {money(car.last_bid?.amount)}
-                  </dd>
-                </div>
-                <div>
-                  <dt className="text-xs text-slate-500">Next minimum</dt>
-                  <dd>
-                    {car.is_live && timeLeft(car.auction_end, now) !== "Ended"
-                      ? money(minimumBid(car))
-                      : "Closed"}
-                  </dd>
-                </div>
-                <div>
-                  <dt className="text-xs text-slate-500">Time remaining</dt>
-                  <dd className="font-mono">
-                    {timeLeft(car.auction_end, now)}
-                  </dd>
-                </div>
-              </dl>
-              <p className="text-xs text-slate-500 mb-3">
-                Your bids on this car: {car.my_bid_count}
-              </p>
-              <Link
-                to={`/cars/${car.id}#dealer-bidding`}
-                className="w-full rounded-xl bg-blue-700 text-white py-3 px-3 flex justify-center items-center gap-2 font-semibold text-sm"
-              >
-                {car.is_live && timeLeft(car.auction_end, now) !== "Ended"
-                  ? "View & review bid"
-                  : "View auction result"}
-                <ArrowUpRight size={15} />
-              </Link>
-            </div>
-          </article>
-        ))}
+                <dl className="dealer-card-bids">
+                  <div><dt>Highest bid</dt><dd className="dealer-price">{money(car.current_bid_dealer)}</dd></div>
+                  <div className={`dealer-card-time${urgent ? " is-urgent" : ""}`}><dt>Time remaining</dt><dd><Clock3 size={12} aria-hidden="true" />{remaining}</dd></div>
+                </dl>
+                <p className="dealer-card-last-bid"><span>Your last bid</span><strong>{money(car.last_bid?.amount)}</strong></p>
+              </div>
+              <div className="dealer-car-footer">
+                <dl><dt>Next minimum</dt><dd>{live ? money(minimumBid(car)) : "Closed"}</dd></dl>
+                <Link to={detailUrl} className="dealer-primary-button">{live ? "View & bid" : "View result"}<ArrowRight size={14} aria-hidden="true" /></Link>
+              </div>
+            </article>
+          );
+        })}
       </div>
-      {viewData && (
-        <div className="flex justify-between items-center gap-3 text-sm">
-          <button
-            disabled={page === 0 || loading}
-            onClick={() => setPage((value) => value - 1)}
-            className="border rounded-xl px-4 py-2 disabled:opacity-40"
-          >
-            Previous
-          </button>
-          <span>
-            {viewData.total} results · Page {page + 1}
-          </span>
-          <button
-            disabled={(page + 1) * PAGE_SIZE >= viewData.total || loading}
-            onClick={() => setPage((value) => value + 1)}
-            className="border rounded-xl px-4 py-2 disabled:opacity-40"
-          >
-            Next
-          </button>
+      {viewData && viewData.total > 0 && (
+        <div className="dealer-pagination">
+          <button disabled={page === 0 || loading} onClick={() => setPage((value) => value - 1)}><ArrowLeft size={13} aria-hidden="true" />Previous</button>
+          <span>{viewData.total} results · Page {page + 1}</span>
+          <button disabled={(page + 1) * PAGE_SIZE >= viewData.total || loading} onClick={() => setPage((value) => value + 1)}>Next<ArrowRight size={13} aria-hidden="true" /></button>
         </div>
       )}
+      <div className="dealer-market-footer"><span><ShieldCheck size={13} aria-hidden="true" />Every accepted bid has a saved record.</span><span>Highest bid is subject to seller approval.</span></div>
+      <footer className="dealer-page-footer"><span>© {new Date().getFullYear()} WellCarDeals · Your auction workspace.</span><span>Find. Bid. Drive.</span></footer>
     </div>
   );
 }

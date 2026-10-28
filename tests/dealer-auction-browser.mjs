@@ -39,7 +39,7 @@ page.on("pageerror", (failure) => errors.push(failure.message));
 await page.route("**/src/auth/AuthContext.jsx*", (route) =>
   route.fulfill({
     contentType: "application/javascript",
-    body: `const auth={user:{id:'${me}'},session:{id:'${me}'},profile:{business_name:'Delhi Motors'},role:'dealer',dealerStatus:'approved',loading:false}; export const useAuth=()=>auth; export const AuthProvider=({children})=>children;`,
+    body: `const auth={user:{id:'${me}'},session:{id:'${me}'},profile:{business_name:'Delhi Motors'},role:'dealer',dealerStatus:'approved',loading:false}; export const useAuth=()=>auth; export const AuthProvider=({children})=>children; export const AuthRecovery=()=>null;`,
   }),
 );
 await page.route("**/rest/v1/**", async (route) => {
@@ -119,7 +119,7 @@ await page.route("**/rest/v1/**", async (route) => {
               ],
       },
     });
-  if (endpoint === "cars")
+  if (endpoint === "cars" || endpoint === "cars_catalog")
     return route.fulfill({
       json: url.searchParams.get("id")?.startsWith("eq.") ? car : [],
     });
@@ -147,7 +147,7 @@ try {
   await page
     .getByRole("button", { name: "Remove from watchlist: Hyundai Creta SX" })
     .waitFor();
-  await page.getByRole("tab", { name: "Watchlist", exact: true }).click();
+  await page.getByRole("tab", { name: /^Watchlist\b/ }).click();
   await page
     .getByRole("heading", { name: "Hyundai Creta SX", exact: true })
     .waitFor();

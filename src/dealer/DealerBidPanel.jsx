@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Gavel, RefreshCw, WifiOff, X } from "lucide-react";
+import { ArrowRight, Gavel, RefreshCw, ShieldCheck, WifiOff, X } from "lucide-react";
+import { Link } from "react-router-dom";
+import "./dealer-workspace.css";
 import { supabase } from "../lib/supabaseClient";
 import { useAuth } from "../auth/AuthContext";
 import useAuctionClock from "./useAuctionClock";
@@ -12,18 +14,12 @@ import {
   timeLeft,
 } from "./auction";
 
-const tones = {
-  green: "bg-emerald-100 text-emerald-800",
-  red: "bg-red-100 text-red-800",
-  amber: "bg-amber-100 text-amber-900",
-  gray: "bg-slate-100 text-slate-700",
-  blue: "bg-blue-100 text-blue-800",
-};
 export function BidStatus({ car, userId, myBid, now }) {
   const status = auctionStatus(car, userId, myBid, now);
   return (
     <span
-      className={`inline-block rounded-full px-3 py-1 text-xs font-semibold ${tones[status.tone]}`}
+      className="dealer-bid-status"
+      data-tone={status.tone}
     >
       {status.label}
     </span>
@@ -326,268 +322,86 @@ export default function DealerBidPanel({ car: initialCar, onCarChange }) {
   }
 
   return (
-    <section
-      id="dealer-bidding"
-      className="rounded-2xl bg-white p-5 text-slate-900 shadow-sm scroll-mt-24"
-    >
-      <div className="flex items-center justify-between gap-2 mb-4">
-        <h2 className="font-bold flex items-center gap-2">
-          <Gavel size={18} /> Dealer bidding
-        </h2>
+    <section id="dealer-bidding" className="dealer-bid-panel">
+      <div className="dealer-panel-heading">
+        <div><p className="dealer-eyebrow">YOUR NEXT MOVE</p><h2><Gavel size={18} aria-hidden="true" />Dealer bidding</h2></div>
         <LinkBack />
       </div>
       <BidStatus car={car} userId={user.id} myBid={myBid} now={serverNow} />
-      <div className="grid grid-cols-2 gap-3 my-4">
-        <div>
-          <p className="text-xs text-slate-500">Current highest bid</p>
-          <p className="text-2xl font-bold">{money(car.current_bid_dealer)}</p>
-        </div>
-        <div>
-          <p className="text-xs text-slate-500">Your last bid</p>
-          <p className="text-xl font-semibold">{money(myBid?.amount)}</p>
-        </div>
-        <div>
-          <p className="text-xs text-slate-500">Next minimum bid</p>
-          <p className="font-semibold">{money(minimum)}</p>
-        </div>
-        <div>
-          <p className="text-xs text-slate-500">Time remaining</p>
-          <p className="font-mono font-semibold">
-            {timeLeft(car.auction_end, serverNow)}
-          </p>
-        </div>
+      <div className="dealer-bid-metrics">
+        <div className="dealer-current-bid"><p>Current highest bid</p><p>{money(car.current_bid_dealer)}</p></div>
+        <div><p>Your last bid</p><p>{money(myBid?.amount)}</p></div>
+        <div><p>Next minimum bid</p><p>{money(minimum)}</p></div>
+        <div><p>Time remaining</p><p>{timeLeft(car.auction_end, serverNow)}</p></div>
       </div>
-      <div
-        className={`rounded-xl p-3 text-xs mb-4 ${fresh ? "bg-blue-50 text-blue-800" : "bg-amber-50 text-amber-900"}`}
-        aria-live="polite"
-      >
-        {!online ? (
-          <span className="flex gap-2">
-            <WifiOff size={14} /> Offline. Bidding paused.
-          </span>
-        ) : (
-          syncError ||
-          (fresh
-            ? `${realtime ? "Live updates" : "Polling for updates"} · Verified ${age}s ago`
-            : "Verifying the latest auction. Bidding is paused.")
+      <div className={`dealer-bid-sync${fresh ? "" : " is-stale"}`} aria-live="polite">
+        {!online ? <span className="inline-flex items-center gap-2"><WifiOff size={14} />Offline. Bidding paused.</span> : (
+          syncError || (fresh ? `${realtime ? "Live updates" : "Polling for updates"} · Verified ${age}s ago` : "Verifying the latest auction. Bidding is paused.")
         )}
-        <button
-          type="button"
-          onClick={sync}
-          className="ml-2 underline inline-flex items-center gap-1"
-        >
-          <RefreshCw size={12} /> Refresh
-        </button>
+        <button type="button" onClick={sync}><RefreshCw size={12} aria-hidden="true" />Refresh</button>
       </div>
       {receipt && (
-        <div
-          role="status"
-          className="rounded-xl bg-emerald-50 border border-emerald-200 p-3 mb-4 text-sm text-emerald-900"
-        >
+        <div role="status" className="dealer-bid-receipt">
           <strong>Bid saved: {money(receipt.amount)}</strong>
           <p>Bid ID: {receipt.bid_id}</p>
-          <p>
-            Accepted:{" "}
-            {new Date(receipt.accepted_at).toLocaleString("en-IN", {
-              timeZone: "Asia/Kolkata",
-            })}{" "}
-            IST
-          </p>
+          <p>Accepted: {new Date(receipt.accepted_at).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })} IST</p>
         </div>
       )}
       {pending && (
-        <div className="rounded-xl bg-amber-50 p-3 mb-4 text-sm">
-          <p>
-            Unconfirmed request: {money(pending.amount)}. Do not submit a
-            different bid yet.
-          </p>
-          <button
-            onClick={() => sendBid(pending)}
-            disabled={busy || !online}
-            className="mt-2 font-semibold underline disabled:opacity-50"
-          >
-            {busy ? "Checking bid…" : "Check / retry same bid"}
-          </button>
+        <div className="dealer-pending-bid">
+          <p>Unconfirmed request: {money(pending.amount)}. Do not submit a different bid yet.</p>
+          <button onClick={() => sendBid(pending)} disabled={busy || !online}>{busy ? "Checking bid…" : "Check / retry same bid"}</button>
         </div>
       )}
-      {error && (
-        <p role="alert" className="text-sm text-red-700 mb-3">
-          {error}
-        </p>
-      )}
+      {error && <p role="alert" className="dealer-bid-error">{error}</p>}
       {live ? (
         <>
-          <p className="text-xs text-slate-500 mb-2">
-            Choose a bid to review · minimum increment{" "}
-            {money(car.minimum_increment || 5000)}
-          </p>
-          <div className="grid grid-cols-3 gap-2 mb-4">
+          <p className="dealer-quick-bid-label">Choose a bid to review · minimum increment {money(car.minimum_increment || 5000)}</p>
+          <div className="dealer-quick-bids">
             {[0, 1, 4].map((extra) => {
-              const amount =
-                minimum + extra * Number(car.minimum_increment || 5000);
-              return (
-                <button
-                  key={extra}
-                  onClick={() => beginReview(amount)}
-                  disabled={!fresh || busy || Boolean(pending)}
-                  className="border border-blue-200 bg-blue-50 text-blue-800 rounded-xl py-3 text-sm font-semibold disabled:opacity-40"
-                >
-                  {money(amount)}
-                </button>
-              );
+              const amount = minimum + extra * Number(car.minimum_increment || 5000);
+              return <button key={extra} onClick={() => beginReview(amount)} disabled={!fresh || busy || Boolean(pending)}>{money(amount)}</button>;
             })}
           </div>
-          <label
-            className="block text-xs font-medium mb-1"
-            htmlFor="dealer-bid-amount"
-          >
-            Your bid amount (₹)
-          </label>
-          <input
-            id="dealer-bid-amount"
-            type="number"
-            inputMode="numeric"
-            min={minimum}
-            step="1"
-            value={custom}
-            onChange={(e) => setCustom(e.target.value)}
-            disabled={busy || Boolean(pending)}
-            placeholder={String(minimum)}
-            className="w-full rounded-xl border border-slate-300 px-3 py-3 mb-3"
-          />
-          <button
-            onClick={() => beginReview(custom ? Number(custom) : minimum)}
-            disabled={!fresh || busy || Boolean(pending)}
-            className="w-full rounded-xl bg-blue-700 text-white py-3 font-semibold disabled:opacity-40"
-          >
-            Review bid {money(custom ? Number(custom) : minimum)}
+          <label className="dealer-bid-amount-label" htmlFor="dealer-bid-amount">Your bid amount (₹)</label>
+          <input id="dealer-bid-amount" type="number" inputMode="numeric" min={minimum} step="1" value={custom} onChange={(e) => setCustom(e.target.value)} disabled={busy || Boolean(pending)} placeholder={String(minimum)} className="dealer-bid-amount-input" />
+          <button onClick={() => beginReview(custom ? Number(custom) : minimum)} disabled={!fresh || busy || Boolean(pending)} className="dealer-primary-button">
+            Review bid {money(custom ? Number(custom) : minimum)}<ArrowRight size={16} aria-hidden="true" />
           </button>
-          <div
-            className="fixed bottom-0 inset-x-0 z-40 bg-white border-t border-slate-200 p-3 flex items-center justify-between gap-3 md:hidden shadow-lg"
-            style={{ paddingBottom: "max(12px, env(safe-area-inset-bottom))" }}
-          >
-            <div className="text-xs">
-              <span className="text-slate-500">Minimum bid</span>
-              <p className="font-bold text-sm">{money(minimum)}</p>
-            </div>
-            <button
-              onClick={() => beginReview(custom ? Number(custom) : minimum)}
-              disabled={!fresh || busy || Boolean(pending)}
-              className="rounded-xl bg-blue-700 px-4 py-3 font-semibold text-white text-sm disabled:opacity-40"
-            >
-              Review bid
-            </button>
+          <p className="dealer-bid-security-note"><ShieldCheck size={13} aria-hidden="true" />Your bid is only submitted after you review and confirm.</p>
+          <div className="dealer-mobile-bid-bar" style={{ paddingBottom: "max(12px, env(safe-area-inset-bottom))" }}>
+            <div><span>Minimum bid</span><strong>{money(minimum)}</strong></div>
+            <button onClick={() => beginReview(custom ? Number(custom) : minimum)} disabled={!fresh || busy || Boolean(pending)} className="dealer-primary-button">Review bid<ArrowRight size={14} aria-hidden="true" /></button>
           </div>
         </>
       ) : (
-        <p className="text-sm text-slate-600">
-          Bidding is closed. Being the highest bidder does not confirm a sale;
-          the team must approve the deal.
-        </p>
+        <p className="text-sm leading-relaxed text-slate-600">Bidding is closed. Being the highest bidder does not confirm a sale; the team must approve the deal.</p>
       )}
-      <div className="mt-5 border-t border-slate-200 pt-4">
-        <h3 className="text-sm font-semibold">
-          Your bid history · {history.total} saved bids
-        </h3>
+      <div className="dealer-bid-history">
+        <h3>Your bid history · {history.total} saved bids</h3>
         {history.recent.length > 0 ? (
-          <ul className="divide-y divide-slate-100 mt-2">
-            {history.recent.map((bid) => (
-              <li
-                key={bid.id}
-                className="flex flex-wrap justify-between gap-2 py-2 text-xs"
-              >
-                <span className="text-slate-500">
-                  #{bid.id} ·{" "}
-                  {new Date(bid.created_at).toLocaleString("en-IN", {
-                    timeZone: "Asia/Kolkata",
-                  })}{" "}
-                  IST
-                </span>
-                <strong>{money(bid.amount)}</strong>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="text-xs text-slate-500 mt-2">
-            No saved bid history loaded.
-          </p>
-        )}
-        {history.total > 5 && (
-          <p className="text-xs text-slate-500 mt-2">
-            Showing the latest 5 bids. Contact support for the complete record.
-          </p>
-        )}
+          <ul>{history.recent.map((bid) => <li key={bid.id}><span>#{bid.id} · {new Date(bid.created_at).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })} IST</span><strong>{money(bid.amount)}</strong></li>)}</ul>
+        ) : <p>No saved bid history loaded.</p>}
+        {history.total > 5 && <p>Showing the latest 5 bids. Contact support for the complete record.</p>}
       </div>
       {review !== null && (
-        <div
-          className="fixed inset-0 z-[70] bg-slate-950/70 flex items-center justify-center p-4"
-          ref={dialogRef}
-          tabIndex={-1}
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="bid-review-title"
-        >
-          <div className="bg-white rounded-2xl p-6 w-full max-w-md text-slate-900">
-            <div className="flex justify-between gap-3">
-              <h2 id="bid-review-title" className="text-lg font-bold">
-                Review your bid
-              </h2>
-              <button
-                aria-label="Close bid review"
-                disabled={busy || Boolean(pending)}
-                onClick={() => setReview(null)}
-              >
-                <X size={20} />
-              </button>
+        <div className="dealer-review-overlay" ref={dialogRef} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="bid-review-title">
+          <div className="dealer-review-card">
+            <p className="dealer-eyebrow">ONE LAST LOOK</p>
+            <div className="dealer-review-heading">
+              <h2 id="bid-review-title">Review your bid</h2>
+              <button className="dealer-icon-button" aria-label="Close bid review" disabled={busy || Boolean(pending)} onClick={() => setReview(null)}><X size={18} /></button>
             </div>
-            <p className="text-sm text-slate-600 my-3">{car.vehicle_title}</p>
-            <p className="text-3xl font-bold mb-4">{money(review)}</p>
-            <p className="text-sm mb-4">
-              Minimum now: {money(minimum)}. Your bid is final once accepted.
-              Auction result is subject to seller approval.
-            </p>
-            {(!fresh || review < minimum || !live) && (
-              <p role="alert" className="text-sm text-red-700 mb-3">
-                Auction status changed. Close this review and check the latest
-                price.
-              </p>
-            )}
-            {error && (
-              <p role="alert" className="text-sm text-red-700 mb-3">
-                {error}
-              </p>
-            )}
-            <div className="flex gap-3">
-              <button
-                disabled={busy || Boolean(pending)}
-                onClick={() => setReview(null)}
-                className="flex-1 rounded-xl border py-3 disabled:opacity-40"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={confirm}
-                disabled={
-                  !fresh ||
-                  !live ||
-                  review < minimum ||
-                  busy ||
-                  Boolean(pending)
-                }
-                className="flex-1 rounded-xl bg-blue-700 text-white py-3 font-semibold disabled:opacity-40"
-              >
-                {busy ? "Confirming…" : "Confirm bid"}
-              </button>
+            <p className="dealer-review-car">{car.vehicle_title}</p>
+            <p className="dealer-review-amount">{money(review)}</p>
+            <p className="dealer-review-terms">Minimum now: {money(minimum)}. Your bid is final once accepted. Auction result is subject to seller approval.</p>
+            {(!fresh || review < minimum || !live) && <p role="alert" className="dealer-review-alert">Auction status changed. Close this review and check the latest price.</p>}
+            {error && <p role="alert" className="dealer-review-alert">{error}</p>}
+            <div className="dealer-review-actions">
+              <button disabled={busy || Boolean(pending)} onClick={() => setReview(null)} className="dealer-secondary-button">Cancel</button>
+              <button onClick={confirm} disabled={!fresh || !live || review < minimum || busy || Boolean(pending)} className="dealer-primary-button">{busy ? "Confirming…" : "Confirm bid"}</button>
             </div>
-            {pending && !busy && (
-              <button
-                disabled={!online}
-                onClick={() => sendBid(pending)}
-                className="mt-4 text-blue-700 underline"
-              >
-                Check / retry same bid
-              </button>
-            )}
+            {pending && !busy && <button disabled={!online} onClick={() => sendBid(pending)} className="dealer-retry-link">Check / retry same bid</button>}
           </div>
         </div>
       )}
@@ -596,9 +410,5 @@ export default function DealerBidPanel({ car: initialCar, onCarChange }) {
 }
 
 function LinkBack() {
-  return (
-    <a href="/dealer/dashboard" className="text-xs text-blue-700 underline">
-      My auctions
-    </a>
-  );
+  return <Link to="/dealer/dashboard" className="dealer-panel-back">My auctions</Link>;
 }

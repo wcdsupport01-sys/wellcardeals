@@ -1,209 +1,147 @@
-import { useState } from "react";
-import { NavLink, Outlet, useNavigate, Link } from "react-router-dom";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Link, Outlet, useLocation, useNavigate } from "react-router-dom";
 import {
-  Car,
-  LogOut,
-  LayoutDashboard,
-  ShoppingBag,
-  Gavel,
-  User,
-  Search,
-  Menu,
-  X,
-  LifeBuoy,
-  Home,
+  ArrowRight, Car, ChevronDown, ChevronRight, ExternalLink,
+  Gavel, Heart, LogOut, Menu, ShieldCheck, TrendingUp, Trophy, User, X,
 } from "lucide-react";
 import { useAuth } from "../../auth/AuthContext";
+import DealerGuideDialog from "../../dealer/DealerGuideDialog";
+import "../../dealer/dealer-workspace.css";
 
-// Only real, working routes — no placeholder "coming soon" items.
 const NAV = [
-  { to: "/dealer/dashboard", label: "Auction desk", icon: LayoutDashboard },
-  { to: "/buy-car", label: "Buy Cars", icon: ShoppingBag },
-  { to: "/live-auctions", label: "Live Auctions", icon: Gavel },
-  { to: "/dealer/profile", label: "Profile", icon: User },
+  { tab: "live", label: "Live auctions", icon: Gavel },
+  { tab: "bids", label: "My bids", icon: TrendingUp },
+  { tab: "watchlist", label: "Watchlist", icon: Heart },
+  { tab: "results", label: "Results", icon: Trophy },
 ];
 
-function SidebarContent({ onNavigate }) {
+function SidebarContent({ onNavigate, onHelp, onSignOut }) {
+  const location = useLocation();
+  const selectedTab = new URLSearchParams(location.search).get("tab") || "live";
+  const isDashboard = location.pathname === "/dealer/dashboard";
   return (
     <>
-      <Link to="/" className="flex items-center gap-2 px-6 py-6">
-        <Car className="text-[#1E4FD9]" size={24} />
-        <div className="leading-tight">
-          <p className="font-extrabold text-[#0B2545] text-sm tracking-tight">WELL CARS DEAL</p>
-          <p className="text-[9px] text-[#93A0BD] tracking-wide">TRUST • TRANSPARENCY • TECHNOLOGY</p>
-        </div>
+      <Link to="/" className="dealer-brand" onClick={onNavigate} aria-label="WellCarDeals home">
+        <span className="dealer-brand-mark"><Car size={25} aria-hidden="true" /></span>
+        <span><span className="dealer-brand-name">Well<em>Car</em>Deals</span><span className="dealer-brand-sub">DEALER WORKSPACE</span></span>
       </Link>
-
-      <nav className="flex-1 overflow-y-auto px-3 space-y-1">
-        <NavLink
-          to="/"
-          onClick={onNavigate}
-          className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-[#4B5A78] hover:bg-[#F1F4FB] mb-1"
-        >
-          <Home size={17} /> Back to Home
-        </NavLink>
-        {NAV.map(({ to, label, icon: Icon, soon }) =>
-          soon ? (
-            <div
-              key={label}
-              title="Coming soon"
-              className="flex items-center justify-between gap-3 px-3 py-2.5 rounded-xl text-sm text-[#B7C0D8] cursor-not-allowed select-none"
-            >
-              <span className="flex items-center gap-3">
-                <Icon size={17} /> {label}
-              </span>
-              <span className="text-[9px] font-semibold uppercase tracking-wide bg-[#F1F4FB] px-1.5 py-0.5 rounded">
-                Soon
-              </span>
-            </div>
-          ) : (
-            <NavLink
-              key={to}
-              to={to}
-              onClick={onNavigate}
-              className={({ isActive }) =>
-                `flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition ${
-                  isActive
-                    ? "bg-[#1E4FD9] text-white shadow-sm"
-                    : "text-[#4B5A78] hover:bg-[#F1F4FB]"
-                }`
-              }
-              end={to === "/dealer/dashboard"}
-            >
-              <Icon size={17} /> {label}
-            </NavLink>
-          )
-        )}
+      <p className="dealer-nav-caption">YOUR WORKSPACE</p>
+      <nav className="dealer-nav" aria-label="Dealer workspace">
+        {NAV.map((item) => {
+          const { tab, label, icon: Icon } = item;
+          const active = isDashboard && selectedTab === tab;
+          return (
+            <Link key={tab} to={`/dealer/dashboard?tab=${tab}`} onClick={onNavigate}
+              className={`dealer-nav-link${active ? " active" : ""}`}
+              aria-current={active ? "page" : undefined}>
+              <Icon size={18} aria-hidden="true" />{label}
+            </Link>
+          );
+        })}
       </nav>
-
-      <div className="p-4">
-        <div className="rounded-2xl bg-[#F1F4FB] p-4">
-          <p className="text-sm font-semibold text-[#0B2545]">Need Help?</p>
-          <p className="text-xs text-[#6B7A9A] mt-1">Our support team is available 24/7 to help you.</p>
-          <Link
-            to="/contact"
-            className="mt-3 w-full flex items-center justify-center gap-1.5 text-xs font-semibold bg-white border border-[#DCE3F5] rounded-xl py-2 text-[#1E4FD9]"
-          >
-            <LifeBuoy size={14} /> Contact Support
-          </Link>
-        </div>
+      <p className="dealer-nav-caption">YOUR ACCOUNT</p>
+      <Link to="/dealer/profile" onClick={onNavigate}
+        className={`dealer-nav-link${location.pathname === "/dealer/profile" ? " active" : ""}`}
+        aria-current={location.pathname === "/dealer/profile" ? "page" : undefined}>
+        <User size={18} aria-hidden="true" />Business profile
+      </Link>
+      <div className="dealer-sidebar-spacer" />
+      <div className="dealer-sidebar-help">
+        <ShieldCheck aria-hidden="true" />
+        <strong>Bid with a little more clarity.</strong>
+        <p>Review the car, check the amount, then make your move.</p>
+        <button onClick={onHelp}>How bidding works <ArrowRight size={14} aria-hidden="true" /></button>
+      </div>
+      <div className="dealer-sidebar-footer">
+        <Link to="/buy-car" onClick={onNavigate}><ExternalLink size={16} aria-hidden="true" />Browse marketplace</Link>
+        <button onClick={onSignOut}><LogOut size={16} aria-hidden="true" />Log out</button>
       </div>
     </>
   );
 }
 
 export default function DealerLayout() {
-  const { profile, signOut } = useAuth();
+  const { profile, dealerStatus, signOut } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [search, setSearch] = useState("");
+  const [helpOpen, setHelpOpen] = useState(false);
+  const drawerRef = useRef(null);
+  const menuRef = useRef(null);
+  const openHelp = useCallback(() => {
+    setMobileOpen(false);
+    setHelpOpen(true);
+  }, []);
+  const closeHelp = useCallback(() => setHelpOpen(false), []);
 
-  function handleSearch(e) {
-    e.preventDefault();
-    navigate(search.trim() ? `/dealer/dashboard?q=${encodeURIComponent(search.trim())}` : "/dealer/dashboard");
-  }
+  useEffect(() => {
+    if (!mobileOpen) return;
+    const drawer = drawerRef.current;
+    const menuButton = menuRef.current;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    drawer.querySelector("button, a[href]")?.focus();
+    const keyboard = (event) => {
+      if (event.key === "Escape") setMobileOpen(false);
+      if (event.key !== "Tab") return;
+      const controls = [...drawer.querySelectorAll("button:not(:disabled), a[href]")];
+      const first = controls[0], last = controls.at(-1);
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault(); last?.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault(); first?.focus();
+      }
+    };
+    document.addEventListener("keydown", keyboard);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener("keydown", keyboard);
+      menuButton?.focus();
+    };
+  }, [mobileOpen]);
 
   async function handleSignOut() {
+    setMobileOpen(false);
     await signOut();
     navigate("/dealer-login", { replace: true });
   }
-
-  const initials = (profile?.dealer_name || profile?.business_name || "D").slice(0, 2).toUpperCase();
+  const name = profile?.business_name || profile?.dealer_name || profile?.full_name || "Your dealership";
+  const initials = name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join("").toUpperCase() || "D";
+  const approved = (profile?.status || dealerStatus) === "approved";
+  const section = location.pathname === "/dealer/profile" ? "Business profile" : "Auctions";
 
   return (
-    <div className="min-h-screen bg-[#F7F9FC] text-[#0B2545] flex">
-      {/* ---------- Sidebar (desktop) ---------- */}
-      <aside className="hidden lg:flex flex-col w-64 shrink-0 bg-white border-r border-[#EAEEF7] h-screen sticky top-0">
-        <SidebarContent />
-        <div className="px-3 pb-4">
-          <button
-            onClick={handleSignOut}
-            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-red-500 hover:bg-red-50"
-          >
-            <LogOut size={17} /> Logout
-          </button>
-        </div>
+    <div className="dealer-workspace">
+      <aside className="dealer-sidebar dealer-sidebar-desktop">
+        <SidebarContent onHelp={openHelp} onSignOut={handleSignOut} />
       </aside>
-
-      {/* ---------- Sidebar (mobile drawer) ---------- */}
       {mobileOpen && (
-        <div className="lg:hidden fixed inset-0 z-50 flex">
-          <div className="absolute inset-0 bg-black/40" onClick={() => setMobileOpen(false)} />
-          <aside className="relative w-72 bg-white h-full flex flex-col">
-            <button
-              onClick={() => setMobileOpen(false)}
-              className="absolute right-3 top-4 text-[#6B7A9A]"
-            >
-              <X size={20} />
-            </button>
-            <SidebarContent onNavigate={() => setMobileOpen(false)} />
-            <div className="px-3 pb-4">
-              <button
-                onClick={handleSignOut}
-                className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-red-500 hover:bg-red-50"
-              >
-                <LogOut size={17} /> Logout
-              </button>
-            </div>
+        <div className="dealer-mobile-nav" role="dialog" aria-modal="true" aria-label="Dealer navigation" ref={drawerRef}>
+          <div className="dealer-nav-backdrop" onClick={() => setMobileOpen(false)} aria-hidden="true" />
+          <aside className="dealer-sidebar" id="dealer-mobile-navigation">
+            <button className="dealer-icon-button dealer-nav-close" aria-label="Close navigation" onClick={() => setMobileOpen(false)}><X size={19} /></button>
+            <SidebarContent onNavigate={() => setMobileOpen(false)} onHelp={openHelp} onSignOut={handleSignOut} />
           </aside>
         </div>
       )}
-
-      {/* ---------- Main column ---------- */}
-      <div className="flex-1 min-w-0">
-        <header className="sticky top-0 z-30 bg-[#F7F9FC]/95 backdrop-blur border-b border-[#EAEEF7] px-4 md:px-8 py-4 flex items-center gap-4">
-          <button className="lg:hidden text-[#4B5A78]" onClick={() => setMobileOpen(true)}>
-            <Menu size={22} />
-          </button>
-
-          <Link
-            to="/"
-            className="hidden sm:flex items-center gap-1.5 text-sm font-medium text-[#4B5A78] hover:text-[#1E4FD9] border border-[#E3E8F5] bg-white rounded-xl px-3.5 py-2.5 shrink-0"
-          >
-            <Home size={16} /> Back to Home
-          </Link>
-
-          <form
-            onSubmit={handleSearch}
-            className="flex-1 max-w-xl hidden sm:flex items-center gap-2 bg-white border border-[#E3E8F5] rounded-xl px-4 py-2.5"
-          >
-            <Search size={16} className="text-[#93A0BD]" />
-            <input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search for cars..."
-              className="flex-1 bg-transparent outline-none text-sm placeholder:text-[#93A0BD]"
-            />
-          </form>
-
-          <div className="ml-auto flex items-center gap-2 md:gap-3">
-            <Link
-              to="/dealer/profile"
-              className="flex items-center gap-2 pl-1 rounded-xl hover:bg-white px-2 py-1 transition"
-            >
-              {profile?.profile_image_url ? (
-                <img
-                  src={profile.profile_image_url}
-                  alt={profile?.dealer_name || "Dealer"}
-                  className="h-9 w-9 rounded-full object-cover border border-[#E3E8F5]"
-                />
-              ) : (
-                <div className="h-9 w-9 rounded-full bg-[#1E4FD9] text-white flex items-center justify-center text-xs font-bold">
-                  {initials}
-                </div>
-              )}
-              <div className="hidden sm:block leading-tight text-left">
-                <p className="text-sm font-semibold">{profile?.dealer_name || "Dealer"}</p>
-                <p className="text-xs text-[#93A0BD]">Dealer</p>
-              </div>
+      <div className="dealer-main-shell">
+        <header className="dealer-topbar">
+          <div className="dealer-topbar-left">
+            <button ref={menuRef} className="dealer-icon-button dealer-menu-button" onClick={() => setMobileOpen(true)} aria-label="Open navigation" aria-expanded={mobileOpen} aria-controls={mobileOpen ? "dealer-mobile-navigation" : undefined}><Menu size={21} /></button>
+            <div className="dealer-breadcrumb"><span>Dealer workspace</span><ChevronRight size={13} aria-hidden="true" /><strong>{section}</strong></div>
+          </div>
+          <div className="dealer-topbar-right">
+            {approved && <span className="dealer-account-approved"><ShieldCheck size={16} aria-hidden="true" />Approved dealer</span>}
+            <Link to="/dealer/profile" className="dealer-account" aria-label="Open your business profile">
+              <span className="dealer-avatar">{initials}{profile?.profile_image_url && <img src={profile.profile_image_url} alt="" onError={(event) => { event.currentTarget.hidden = true; }} />}</span>
+              <span><strong>{name}</strong><small>Your dealer account</small></span>
+              <ChevronDown size={13} aria-hidden="true" />
             </Link>
           </div>
         </header>
-
-        <main className="max-w-[1400px] mx-auto px-4 md:px-8 py-6 md:py-8">
-          <Outlet />
-        </main>
+        <main className="dealer-main"><Outlet context={{ openHelp }} /></main>
       </div>
+      <DealerGuideDialog open={helpOpen} onClose={closeHelp} />
     </div>
   );
 }
