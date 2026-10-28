@@ -4,11 +4,22 @@ Owner ne confirm kiya: Thar 2025, Venue 2024 aur i20 Active 2015 ki reviewed
 legacy bids test thi, genuine offers nahi. Verified GitHub backup run
 `40653635130` ke snapshot mein in teen auctions par **5 bid records** hain.
 
-**SQL local restored copy par pass hai; production par abhi apply nahi hui.**
-Existing production deployment credential ne HTTP 401 return kiya; expired
-credential ke saath live write attempt nahi ki gayi.
+**Production cleanup complete aur verified hai.** Owner ne production SQL Editor
+mein poori SQL run ki. Uske baad
+[encrypted backup run 40665828183](https://github.com/wcdsupport01-sys/wellcardeals/actions/runs/40665828183)
+se authenticated read-back aur isolated restore check pass hua:
 
-## Live par run karne ka step
+- Original 5 test bids archive mein hain, har field/fingerprint preserved.
+- Reviewed auctions par active bids 0; remaining other bids 4.
+- Reviewed car rows ke full fingerprints unchanged; dealer-price mismatches 0.
+- Backend configuration checks aur archive admin-only privacy checks pass.
+- Naya backup 34 public tables, 3 account tables aur 37,813 catalog rows restore
+  karta hai. Temporary plaintext aur restore container remove kar diye.
+
+## Original execution / rerun reference
+
+Cleanup already complete hai; routine use mein ise dobara run karna zaroori
+nahi. Neeche original execution aur recovery-review ke reference steps hain.
 
 1. [Production SQL Editor](https://supabase.com/dashboard/project/zdbtlwdjmpvcmwsnkopc/sql/new)
    kholo: project **vanshgupta12b's Project**, ref `zdbtlwdjmpvcmwsnkopc`.
@@ -54,4 +65,5 @@ restore karke cleanup test ki gayi. Koi production row change nahi hui.
   blocked/empty; authenticated archive update/delete/truncate denied.
 
 Local restore container aur temporary decrypted backup check ke baad remove
-kar diye. SQL Editor ka successful result production completion verify karega.
+kar diye. Production completion ko SQL Editor result aur uske baad ke actual
+encrypted backup/restore se independently verify kiya gaya.

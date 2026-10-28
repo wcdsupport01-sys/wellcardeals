@@ -17,10 +17,11 @@ tables, 37,813 catalog records; snapshot mein 31 cars, 9 bids aur 16 profiles ha
 alag work hai.
 
 Owner ne 28 October ko confirm kiya: 3 purane closed auctions ki bids test thi.
-Unke 5 original bid records archive karne wali SQL restored copy par pass hai;
-live apply abhi baaki hai. [Exact SQL Editor steps](CONFIRMED_TEST_BIDS_HI.md)
-follow karein. Naya sale command apply hone tak mismatched price ko winner
-confirm nahi karega. Read-only
+Owner ne unke 5 original bid records archive karne wali SQL production mein
+apply kar di. Naye encrypted backup se read-back aur restore pass hai: 5 test
+bids preserved, reviewed auctions par active bids 0 aur mismatches 0; car prices/
+status unchanged. [Cleanup verification](CONFIRMED_TEST_BIDS_HI.md) mein details
+hain. Read-only
 [backend_data_preflight.sql](../supabase/backend_data_preflight.sql) sirf counts
 check karta hai, data change nahi karta.
 

@@ -87,21 +87,36 @@ secrets are outside this database archive. Keep the independent recovery key
 and rotate the read-only backup token before expiry. Setup and recovery details:
 [DAILY_DATABASE_BACKUP_HI.md](DAILY_DATABASE_BACKUP_HI.md).
 
-## Remaining items
+## Confirmed test-bid cleanup — 2026-10-28
 
 On 28 October the owner confirmed the three legacy closed auctions used test
 bids, not genuine offers. The targeted
 [`archive_confirmed_test_bids_20261028.sql`](../supabase/archive_confirmed_test_bids_20261028.sql)
 preserves their five exact bid records in an admin-readable archive before
 removing them from active bidding; no car, price, winner or sale fields change.
-The actual encrypted GitHub snapshot was restored locally and this cleanup
+The original encrypted GitHub snapshot was restored locally and this cleanup
 passed: all other table fingerprints stay unchanged, dealer-price mismatches
 fall from 3 to 0, changed-data scenarios roll back, archive privacy is enforced
-and reruns preserve later activity. **Production execution remains pending:**
-the existing production deployment credential returned HTTP 401. The repository
-owner can apply the complete reviewed SQL through the production SQL Editor;
-see [CONFIRMED_TEST_BIDS_HI.md](CONFIRMED_TEST_BIDS_HI.md). Until applied, the sale
-guard continues to reject the three inconsistent cached results.
+and reruns preserve later activity. The owner then applied the complete SQL
+through the production SQL Editor.
+
+After that execution, authenticated read-only export through
+[backup run 40665828183](https://github.com/wcdsupport01-sys/wellcardeals/actions/runs/40665828183)
+captured the production state at **2026-10-28 09:38:46 UTC / 15:08:46 IST**.
+The actual encrypted artifact was downloaded, authenticated with the saved
+recovery key, and restored in disposable PostgreSQL 17. All **34 public tables,
+3 account tables and 37,813 catalog rows** passed exact-content/foreign-key/
+sequence checks. The archive contains the five original test bids verbatim;
+their IDs are absent from active bids. The three reviewed auctions have no
+active bids and all three full car fingerprints remain unchanged. Other active
+bids total four, cars total 31 and profiles total 16. Dealer-price mismatches
+are **0**, the release configuration check passes, and archive RLS/admin-only
+read/browser-write restrictions were verified from the exported production
+schema. Temporary plaintext and the restore container were removed. This
+verification performed no additional production writes. Details:
+[CONFIRMED_TEST_BIDS_HI.md](CONFIRMED_TEST_BIDS_HI.md).
+
+## Remaining items
 
 Full media/platform restore, actual email/SMS/payment and external Sheet write
 delivery were not established by this release. Existing repository-wide
