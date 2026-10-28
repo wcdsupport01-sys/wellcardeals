@@ -561,7 +561,6 @@ const RealCarDetail = () => {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {isApprovedDealer ? (
               <div className="dealer-auction-overview">
-                {images[0] && <img src={images[0]} alt={car.vehicle_title} className="dealer-auction-cover" loading="lazy" onError={(event) => { event.currentTarget.hidden = true; }} />}
                 <p className="dealer-eyebrow">DEALER AUCTION</p>
                 <h2>{car.vehicle_title}</h2>
                 <p>Review the vehicle condition, inspection report and documents before confirming a bid.</p>

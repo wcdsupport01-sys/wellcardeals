@@ -187,7 +187,6 @@
 /* The detail page and bid confirmation share the approved workspace design. */
 .dealer-auction-section { background: #f4f7fc; border: 1px solid #e1e8f3; border-radius: 18px; margin-top: 24px; padding: 24px; }
 .dealer-auction-overview { padding: 9px 4px; }
-.dealer-auction-cover { width: 100%; aspect-ratio: 2 / 1; max-height: 220px; object-fit: cover; border-radius: 12px; margin-bottom: 20px; }
 .dealer-auction-overview h2 { color: var(--dealer-ink); font-size: 25px; font-weight: 800; letter-spacing: -.7px; line-height: 1.5; margin: 11px 0 14px; }
 .dealer-auction-overview > p:not(.dealer-eyebrow) { color: var(--dealer-muted); font-size: 13px; line-height: 1.9; margin: 15px 0; }
 .dealer-auction-facts { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; padding: 20px; margin: 24px 0; background: white; border: 1px solid var(--dealer-line); border-radius: 12px; }
