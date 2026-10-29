@@ -65,6 +65,11 @@ try {
   const gallery = await page.locator(".dealer-detail-gallery").boundingBox();
   const bid = await page.locator("#dealer-bidding").boundingBox();
   assert(bid.x > gallery.x + gallery.width && Math.abs(bid.y - gallery.y) < 3);
+  const information = await page.locator(".dealer-detail-information").boundingBox();
+  assert(information.width > gallery.width + bid.width, "details use the full page width");
+  assert((await page.getByRole("tab").evaluateAll((tabs) => tabs.map((tab) => getComputedStyle(tab).fontWeight))).every((weight) => weight === "800"));
+  assert.equal(await page.getByRole("link", { name: "My bids", exact: true }).getAttribute("href"), "/dealer/dashboard?tab=bids");
+  assert.equal(await page.getByRole("link", { name: "Watchlist", exact: true }).first().getAttribute("href"), "/dealer/dashboard?tab=watchlist");
   assert.equal(await page.locator(".dealer-detail-main-photo:visible").count(), 1);
   assert.equal(await page.locator(".dealer-detail-thumbnails button").count(), 3, "thumbnail duplicates are removed");
   assert(await fits());
@@ -80,7 +85,11 @@ try {
   assert.equal(await page.getByRole("button", { name: "View full-size vehicle photo" }).evaluate((el) => el === document.activeElement), true);
   console.log("PASS single gallery, deduplicated thumbnails, real fuel/transmission labels and fullscreen keyboard/focus.");
 
-  await page.getByLabel("Your bid amount (₹)").fill("1810000");
+  await page.locator(".dealer-quick-bids").getByRole("button", { name: "₹18,05,000", exact: true }).click();
+  assert.equal(await page.getByLabel("Your bid amount (₹)").inputValue(), "1805000");
+  assert.equal(await page.getByRole("dialog").count(), 0, "quick amount selection does not confirm a bid");
+  await page.getByRole("button", { name: "Increase bid by minimum increment", exact: true }).click();
+  assert.equal(await page.getByLabel("Your bid amount (₹)").inputValue(), "1810000");
   await page.getByRole("tab", { name: /^Inspection/ }).click();
   await page.getByText("Rear bumper has a scratch.", { exact: true }).waitFor();
   await page.getByText("Poor · review notes", { exact: true }).waitFor();
@@ -99,7 +108,7 @@ try {
   assert.equal(await page.getByLabel("Your bid amount (₹)").inputValue(), "1810000");
   console.log("PASS real inspection states/notes, preserved bid input across tabs, safe document links and denied private access.");
 
-  await page.locator("#dealer-bidding > .dealer-primary-button").click();
+  await page.locator("#dealer-bidding [data-main-review]").click();
   const review = page.getByRole("dialog", { name: "Review your bid" });
   await review.waitFor();
   assert(await review.evaluate((el) => el.parentElement === document.body));
@@ -107,10 +116,28 @@ try {
   await page.screenshot({ path: "/tmp/dealer-car-detail-review.png" });
   await page.keyboard.press("Escape");
   assert.equal(submits, 0);
+  await page.setViewportSize({ width: 1440, height: 600 });
+  await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+  const dock = page.locator(".dealer-desktop-bid-dock");
+  await dock.waitFor();
+  await dock.getByRole("button", { name: "Review bid", exact: true }).click();
+  await review.waitFor();
+  await review.getByText("₹18,10,000", { exact: true }).waitFor();
+  await page.keyboard.press("Escape");
+  await page.context().setOffline(true);
+  await page.getByText("Offline. Bidding paused.", { exact: true }).waitFor();
+  assert(await dock.getByRole("button", { name: "Review bid", exact: true }).isDisabled());
+  await page.context().setOffline(false);
+  await page.locator("#dealer-bidding").getByText(/Verified \d+s ago/).waitFor();
+  assert.equal(submits, 0);
   await page.setViewportSize({ width: 390, height: 844 });
   await page.evaluate(() => window.scrollTo(0, 0));
   assert(await fits());
   assert(await page.locator(".dealer-mobile-bid-bar").isVisible());
+  await page.getByRole("button", { name: "Open menu", exact: true }).click();
+  await page.getByRole("link", { name: "My bids", exact: true }).waitFor();
+  await page.getByRole("button", { name: "Close menu", exact: true }).click();
+  assert.equal(await page.getByRole("link", { name: "My bids", exact: true }).count(), 0);
   const mobileGallery = await page.locator(".dealer-detail-gallery").boundingBox();
   const mobileBid = await page.locator("#dealer-bidding").boundingBox();
   assert(mobileBid.y > mobileGallery.y + mobileGallery.height);
@@ -140,6 +167,7 @@ try {
   await open();
   assert.equal(await page.locator(".dealer-detail-page").count(), 0);
   assert.equal(await page.locator("#dealer-bidding").count(), 0);
+  assert.equal(await page.locator(".dealer-detail-navbar").count(), 0);
   assert.equal(submits, 0);
   assert.deepEqual(errors, []);
   console.log("PASS honest missing-data states, dealer fixed-price and buyer layouts preserved; no page errors.");

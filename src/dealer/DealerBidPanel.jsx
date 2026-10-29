@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ArrowRight, Gavel, RefreshCw, ShieldCheck, WifiOff, X } from "lucide-react";
+import { ArrowRight, Clock3, FileText, RefreshCw, ShieldCheck, WifiOff, X } from "lucide-react";
 import { Link } from "react-router-dom";
 import { createPortal } from "react-dom";
 import "./dealer-workspace.css";
 import { supabase } from "../lib/supabaseClient";
 import { useAuth } from "../auth/AuthContext";
 import useAuctionClock from "./useAuctionClock";
+import DealerBidDock from "./DealerBidDock";
 import {
   auctionStatus,
   bidErrorMessage,
@@ -25,6 +26,15 @@ export function BidStatus({ car, userId, myBid, now }) {
       {status.label}
     </span>
   );
+}
+
+function AuctionCountdown({ end, now }) {
+  const remaining = timeLeft(end, now);
+  return <div className="dealer-auction-countdown-row"><span><Clock3 size={14} aria-hidden="true" />Auction ends in</span>
+    <div className="dealer-auction-countdown" aria-label={`Time remaining: ${remaining}`}>
+      {remaining === "Ended" ? <strong>Ended</strong> : remaining.split(":").map((value, index) => <div key={index}><strong>{value}</strong><small>{["HRS", "MIN", "SEC"][index]}</small></div>)}
+    </div>
+  </div>;
 }
 
 export default function DealerBidPanel({ car: initialCar, onCarChange }) {
@@ -324,16 +334,17 @@ export default function DealerBidPanel({ car: initialCar, onCarChange }) {
 
   return (
     <section id="dealer-bidding" className="dealer-bid-panel">
-      <div className="dealer-panel-heading">
-        <div><p className="dealer-eyebrow">YOUR NEXT MOVE</p><h2><Gavel size={18} aria-hidden="true" />Dealer bidding</h2></div>
-        <LinkBack />
-      </div>
-      <BidStatus car={car} userId={user.id} myBid={myBid} now={serverNow} />
+      <header className="dealer-bid-auction-head">
+        <div className="dealer-auction-head-top"><p>DEALER AUCTION</p><BidStatus car={car} userId={user.id} myBid={myBid} now={serverNow} /></div>
+        <div className="dealer-panel-heading"><h2>Place your bid.</h2><LinkBack /></div>
+        <AuctionCountdown end={car.auction_end} now={serverNow} />
+      </header>
+      <div className="dealer-bid-body">
       <div className="dealer-bid-metrics">
         <div className="dealer-current-bid"><p>Current highest bid</p><p>{money(car.current_bid_dealer)}</p></div>
         <div><p>Your last bid</p><p>{money(myBid?.amount)}</p></div>
         <div><p>Next minimum bid</p><p>{money(minimum)}</p></div>
-        <div><p>Time remaining</p><p>{timeLeft(car.auction_end, serverNow)}</p></div>
+        <div><p>Minimum increment</p><p>{money(car.minimum_increment || 5000)}</p></div>
       </div>
       <div className={`dealer-bid-sync${fresh ? "" : " is-stale"}`} aria-live="polite">
         {!online ? <span className="inline-flex items-center gap-2"><WifiOff size={14} />Offline. Bidding paused.</span> : (
@@ -357,16 +368,18 @@ export default function DealerBidPanel({ car: initialCar, onCarChange }) {
       {error && <p role="alert" className="dealer-bid-error">{error}</p>}
       {live ? (
         <>
-          <p className="dealer-quick-bid-label">Choose a bid to review · minimum increment {money(car.minimum_increment || 5000)}</p>
+          <div className="dealer-bid-field-heading"><label className="dealer-bid-amount-label" htmlFor="dealer-bid-amount">Your bid amount (₹)</label><span>Min. {money(minimum)}</span></div>
+          <div className="dealer-bid-amount-control"><span aria-hidden="true">₹</span><input id="dealer-bid-amount" type="number" inputMode="numeric" min={minimum} step="1" value={custom} onChange={(e) => setCustom(e.target.value)} disabled={busy || Boolean(pending)} placeholder={String(minimum)} className="dealer-bid-amount-input" />
+            <button type="button" aria-label="Decrease bid by minimum increment" disabled={busy || Boolean(pending) || Number(custom || minimum) <= minimum} onClick={() => setCustom(String(Math.max(minimum, Number(custom || minimum) - Number(car.minimum_increment || 5000))))}>−</button>
+            <button type="button" aria-label="Increase bid by minimum increment" disabled={busy || Boolean(pending)} onClick={() => setCustom(String(Math.max(minimum, Number(custom || minimum) + Number(car.minimum_increment || 5000))))}>+</button>
+          </div>
           <div className="dealer-quick-bids">
             {[0, 1, 4].map((extra) => {
               const amount = minimum + extra * Number(car.minimum_increment || 5000);
-              return <button key={extra} onClick={() => beginReview(amount)} disabled={!fresh || busy || Boolean(pending)}>{money(amount)}</button>;
+              return <button key={extra} aria-pressed={Number(custom || minimum) === amount} onClick={() => setCustom(String(amount))} disabled={!fresh || busy || Boolean(pending)}>{money(amount)}</button>;
             })}
           </div>
-          <label className="dealer-bid-amount-label" htmlFor="dealer-bid-amount">Your bid amount (₹)</label>
-          <input id="dealer-bid-amount" type="number" inputMode="numeric" min={minimum} step="1" value={custom} onChange={(e) => setCustom(e.target.value)} disabled={busy || Boolean(pending)} placeholder={String(minimum)} className="dealer-bid-amount-input" />
-          <button onClick={() => beginReview(custom ? Number(custom) : minimum)} disabled={!fresh || busy || Boolean(pending)} className="dealer-primary-button">
+          <button data-main-review onClick={() => beginReview(custom ? Number(custom) : minimum)} disabled={!fresh || busy || Boolean(pending)} className="dealer-primary-button">
             Review bid {money(custom ? Number(custom) : minimum)}<ArrowRight size={16} aria-hidden="true" />
           </button>
           <p className="dealer-bid-security-note"><ShieldCheck size={13} aria-hidden="true" />Your bid is only submitted after you review and confirm.</p>
@@ -374,17 +387,20 @@ export default function DealerBidPanel({ car: initialCar, onCarChange }) {
             <div><span>Minimum bid</span><strong>{money(minimum)}</strong></div>
             <button onClick={() => beginReview(custom ? Number(custom) : minimum)} disabled={!fresh || busy || Boolean(pending)} className="dealer-primary-button">Review bid<ArrowRight size={14} aria-hidden="true" /></button>
           </div>
+          <DealerBidDock car={car} amount={custom ? Number(custom) : minimum} disabled={!fresh || busy || Boolean(pending)} onReview={() => beginReview(custom ? Number(custom) : minimum)} />
         </>
       ) : (
         <p className="text-sm leading-relaxed text-slate-600">Bidding is closed. Being the highest bidder does not confirm a sale; the team must approve the deal.</p>
       )}
-      <div className="dealer-bid-history">
-        <h3>Your bid history · {history.total} saved bids</h3>
+      <details className="dealer-bid-history" open={history.total > 0}>
+        <summary><h3>Your bid history · {history.total} saved bids</h3></summary>
         {history.recent.length > 0 ? (
           <ul>{history.recent.map((bid) => <li key={bid.id}><span>#{bid.id} · {new Date(bid.created_at).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })} IST</span><strong>{money(bid.amount)}</strong></li>)}</ul>
         ) : <p>No saved bid history loaded.</p>}
         {history.total > 5 && <p>Showing the latest 5 bids. Contact support for the complete record.</p>}
+      </details>
       </div>
+      <p className="dealer-bid-seller-note"><FileText size={12} aria-hidden="true" />A highest bid is subject to seller approval.</p>
       {review !== null && createPortal(
         <div className="dealer-review-overlay" ref={dialogRef} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="bid-review-title">
           <div className="dealer-review-card">

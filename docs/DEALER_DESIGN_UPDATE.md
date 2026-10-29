@@ -76,3 +76,32 @@ mobile/tablet widths, one gallery, deduplication, keyboard/focus fullscreen,
 actual fuel/transmission labels, saved inspection notes, document access,
 retained amount entry across tabs, full-viewport bid review, empty data and the
 unchanged buyer/fixed-price views. Run it with the same Vite/Playwright setup.
+
+## V2 release — 29 October 2026
+
+The owner approved the V2 preview for production, including bold Overview,
+Inspection, Features and Documents tabs and the checks badge. The page now uses
+a wider gallery/bidding layout, navy auction header, larger server-based timer
+and price, grouped full-width vehicle details and a before-bidding checklist.
+Inspection notes, feature lists, documents, photos and empty states continue to
+use the vehicle record. No preview vehicle, account, amount or timer is shipped.
+
+Quick amount choices and +/- controls fill the amount field; only Review and
+Confirm can submit a bid. A floating desktop action and the mobile bottom action
+reuse the panel's current amount and existing guarded review handler. Offline,
+stale, ended and pending states still block new submissions. The original bid
+state, clock verification, receipt and retry handlers were compared byte for
+byte with the prior release and are unchanged.
+
+Approved dealers viewing a car also get real Live auctions, My bids and
+Watchlist navigation. The closed mobile navigation is inert and hidden from
+accessibility navigation. Buyer presentation and fixed-price EMI content are
+preserved; approved dealers retain dealer navigation on fixed-price car pages.
+
+Validation: production build, auction unit tests, auction and dashboard browser
+suites, and the expanded vehicle-detail browser suite. The latter checks
+full-width details, bold tabs, navigation, quick amount selection, floating
+review, offline protection, mobile menu and existing document permissions.
+All browser fixtures intercept APIs; no production bid is placed. New dealer
+components pass ESLint. Navbar's existing synchronous route-change effect
+remains; its lint check disabled only that pre-existing rule violation.

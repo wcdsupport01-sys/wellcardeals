@@ -7,7 +7,7 @@ import { subscribeAuthModal } from "../utils/authBus";
 import { useAuth } from "../auth/AuthContext";
 
 const Navbar = () => {
-  const { user, profile, role, loading, signOut } = useAuth();
+  const { user, profile, role, dealerStatus, loading, signOut } = useAuth();
 
   const location = useLocation();
   const navigate = useNavigate();
@@ -28,10 +28,14 @@ const Navbar = () => {
   // Close the account dropdown on route change
   useEffect(() => setAccountMenuOpen(false), [location.pathname]);
 
-  // No standalone "Live Auctions" / "Dealer Network" nav item any more:
-  // - Buyers buy directly from Home's Live Listings or a car's detail page.
-  // - Dealers only bid via Services -> Live Auction System (dealer-only route).
-  const navItems = [
+  // Approved dealers can return directly to their auction workspace from a car.
+  // Other public pages retain the buyer-facing navigation.
+  const dealerVehicle = Boolean(user && role === "dealer" && dealerStatus === "approved" && location.pathname.startsWith("/cars/"));
+  const navItems = dealerVehicle ? [
+    { name: "Live auctions", path: "/dealer/dashboard?tab=live", active: true },
+    { name: "My bids", path: "/dealer/dashboard?tab=bids" },
+    { name: "Watchlist", path: "/dealer/dashboard?tab=watchlist" },
+  ] : [
     { name: "Home", path: "/" },
     { name: "Buy Car", path: "/buy-car" },
     { name: "Sell Car", path: "/sell-car" },
@@ -47,7 +51,7 @@ const Navbar = () => {
     role === "admin" ? "Admin Panel" : role === "dealer" ? "Dealer Dashboard" : role === "buyer" ? "Buyer Dashboard" : null;
 
   const displayName =
-    profile?.full_name || profile?.business_name || user?.displayName || user?.email?.split("@")[0] || "Account";
+    (dealerVehicle && profile?.business_name) || profile?.full_name || profile?.business_name || user?.displayName || user?.email?.split("@")[0] || "Account";
   const initial = displayName.charAt(0).toUpperCase();
 
   const handleSignOut = async () => {
@@ -62,12 +66,12 @@ const Navbar = () => {
       {/* NAVBAR */}
       <nav
         style={{ transform: "translateZ(0)" }}
-        className="w-full fixed top-0 left-0 z-50 bg-white/95 backdrop-blur-sm shadow-soft border-b border-navy-900/8 will-change-transform"
+        className={`w-full fixed top-0 left-0 z-50 bg-white/95 backdrop-blur-sm shadow-soft border-b border-navy-900/8 will-change-transform${dealerVehicle ? " dealer-detail-navbar" : ""}`}
       >
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 lg:py-5 flex items-center justify-between">
 
           {/* Logo */}
-          <Link to="/" className="flex items-center gap-2.5 h-full shrink-0">
+          <Link to={dealerVehicle ? "/dealer/dashboard" : "/"} className="flex items-center gap-2.5 h-full shrink-0">
             <img
               src={logo}
               alt="WellCarDeals Logo"
@@ -86,7 +90,7 @@ const Navbar = () => {
           {/* Desktop Links */}
           <div className="hidden lg:flex items-center gap-8 text-[15px] text-navy-700 font-medium">
             {navItems.map((item, index) => (
-              <Link key={index} to={item.path} className={`relative group transition flex items-center gap-1.5 hover:text-brand ${location.pathname === item.path ? "text-brand" : ""}`}>
+              <Link key={index} to={item.path} className={`relative group transition flex items-center gap-1.5 hover:text-brand ${location.pathname === item.path || item.active ? "text-brand" : ""}`}>
                 {item.name}
                 {item.live && (
                   <span className="relative flex h-1.5 w-1.5">
@@ -96,7 +100,7 @@ const Navbar = () => {
                 )}
                 <span
                   className={`absolute left-0 -bottom-1 h-[1.5px] bg-brand transition-all duration-300 
-                  ${location.pathname === item.path ? "w-full" : "w-0 group-hover:w-full"}`}
+                  ${location.pathname === item.path || item.active ? "w-full" : "w-0 group-hover:w-full"}`}
                 ></span>
               </Link>
             ))}
@@ -116,6 +120,7 @@ const Navbar = () => {
 
           {/* Desktop Right Side: loading / guest / authenticated */}
           <div className="hidden lg:flex items-center gap-3">
+            {dealerVehicle && <span className="dealer-detail-nav-approved"><ShieldCheck size={14} aria-hidden="true" />Approved dealer</span>}
             {!loading && user && role === "buyer" && (
               <>
                 <Link
@@ -205,7 +210,7 @@ const Navbar = () => {
 
           {/* Mobile Menu Button */}
           <div className="lg:hidden">
-            <button onClick={() => setIsOpen(true)} className="text-navy-900">
+            <button onClick={() => setIsOpen(true)} className="text-navy-900" aria-label="Open menu">
               <Menu size={28} />
             </button>
           </div>
@@ -223,13 +228,15 @@ const Navbar = () => {
 
       {/* HALF SCREEN RIGHT PANEL */}
       <div
+        inert={!isOpen}
+        aria-hidden={!isOpen}
         className={`fixed top-0 right-0 h-screen w-[70%] max-w-sm bg-navy-900 z-50 transform transition-transform duration-500 flex flex-col ${isOpen ? "translate-x-0" : "translate-x-full"
           }`}
       >
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-5 border-b border-white/10">
           <span className="text-white text-lg font-semibold">Menu</span>
-          <button onClick={() => setIsOpen(false)}>
+          <button onClick={() => setIsOpen(false)} aria-label="Close menu">
             <X size={26} className="text-white" />
           </button>
         </div>
