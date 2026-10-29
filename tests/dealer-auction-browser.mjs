@@ -159,7 +159,7 @@ try {
     "PASS dashboard totals beyond 8 bids, tabs, watchlist and mobile width",
   );
 
-  await page.goto(origin + "/cars/" + id);
+  await page.goto(origin + "/dealer/auctions/" + id);
   const panel = page.locator("#dealer-bidding");
   await panel.getByText(/Verified \d+s ago/).waitFor();
   await panel.getByLabel("Your bid amount (₹)").fill("400001");

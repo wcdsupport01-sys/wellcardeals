@@ -72,6 +72,14 @@ import StaffOnly from "./auth/StaffOnly";
 
 import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-dom";
 
+function DealerAuctionPage() {
+  return <ProtectedRoute allowedRoles={["dealer"]} loginPath="/dealer-login">
+    <Navbar />
+    <div className="pt-20 md:pt-24"><RealCarDetail mode="dealer-auction" /></div>
+    <Footer />
+  </ProtectedRoute>;
+}
+
 function PublicSite() {
   const { role, loading } = useAuth();
 
@@ -169,6 +177,7 @@ function App() {
           <Route path="/dealer-register" element={<DealerRegister />} />
           <Route path="/dealer/pending" element={<DealerPending />} />
           <Route path="/dealer/verify-code" element={<DealerVerifyCode />} />
+          <Route path="/dealer/auctions/:id" element={<DealerAuctionPage />} />
 
           {/* ---------------- Dealer portal (isolated) ---------------- */}
           <Route

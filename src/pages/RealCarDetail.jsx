@@ -2,15 +2,14 @@ import { backendCommand } from "../lib/backendCommands";
 import React, { useEffect, useState, useCallback } from "react";
 import { useParams, Link } from "react-router-dom";
 import {
-  ShieldCheck, MapPin, Share2, Heart, ChevronLeft, ChevronRight, Gavel, TrendingUp,
+  ShieldCheck, MapPin, Share2, Heart, ChevronLeft, ChevronRight,
   ShoppingCart, CheckCircle2, BadgeCheck, Fuel, Settings2, Gauge, UserCheck,
   Wallet, Truck, PhoneCall, Lock, Calendar, PlayCircle, RotateCw,
-  FileText, Download, Plus, X, AlertCircle, Check, Link2,
+  FileText, Download, Check,
 } from "lucide-react";
 import { supabase, isSupabaseConfigured } from "../lib/supabaseClient";
 import { useAuth } from "../auth/AuthContext";
 import CarCard from "../components/CarCard";
-import DealerBidPanel from "../dealer/DealerBidPanel";
 import DealerCarDetail from "../dealer/DealerCarDetail";
 import { INSPECTION_CATEGORIES } from "../admin/lib/lookups";
 
@@ -18,24 +17,6 @@ const TABS = ["Overview", "Features", "Inspection Report", "Documents", "Similar
 
 const formatINR = (value) =>
   value == null ? "—" : "₹" + Math.round(Number(value)).toLocaleString("en-IN");
-
-function useCountdownTo(endTime) {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    const t = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(t);
-  }, []);
-  if (!endTime) return { hours: 0, minutes: 0, seconds: 0, isEnded: true };
-  const remaining = new Date(endTime).getTime() - now;
-  const diff = Number.isFinite(remaining) ? Math.max(0, remaining) : 0;
-  const isEnded = diff <= 0;
-  const hours = Math.floor(diff / 3_600_000);
-  const minutes = Math.floor((diff % 3_600_000) / 60_000);
-  const seconds = Math.floor((diff % 60_000) / 1000);
-  return { hours, minutes, seconds, isEnded };
-}
-
-const pad = (n) => n.toString().padStart(2, "0");
 
 // ─── Share / Wishlist buttons (reused in two spots on the page) ──────────────
 function ShareButton({ onShare, justCopied, size = 18, className = "" }) {
@@ -65,7 +46,8 @@ function WishlistButton({ isSaved, saving, onToggle, size = 18, className = "" }
   );
 }
 
-const RealCarDetail = () => {
+const RealCarDetail = ({ mode = "purchase" }) => {
+  const dealerAuction = mode === "dealer-auction";
   const { id } = useParams();
   const { role, dealerStatus, profile, user } = useAuth();
   const isApprovedDealer = role === "dealer" && dealerStatus === "approved";
@@ -111,11 +93,13 @@ const RealCarDetail = () => {
   const load = useCallback(async () => {
     if (!isSupabaseConfigured) { setError("Supabase isn't configured yet."); setLoading(false); return; }
     setLoading(true);
-    const { data, error } = await supabase.from("cars_catalog").select("*").eq("id", id).maybeSingle();
+    let query = supabase.from("cars_catalog").select("*, fuel_types(name), transmissions(name)").eq("id", id);
+    if (!dealerAuction) query = query.eq("listing_type", "buy_now_only").eq("access_type", "all");
+    const { data, error } = await query.maybeSingle();
     if (error) setError(error.message);
     else { setError(null); setCar(data); }
     setLoading(false);
-  }, [id]);
+  }, [id, dealerAuction]);
 
   useEffect(() => { load(); setActiveImg(0); }, [load]);
 
@@ -128,7 +112,9 @@ const RealCarDetail = () => {
     return () => supabase.removeChannel(channel);
   }, [id, load]);
 
-  const countdown = useCountdownTo(car?.auction_end);
+  useEffect(() => {
+    if (buyOpen) document.getElementById("purchase-request")?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [buyOpen]);
 
   // Check whether this car is already in the logged-in buyer's wishlist.
   const loadWishlistStatus = useCallback(async () => {
@@ -149,31 +135,31 @@ const RealCarDetail = () => {
     let cancelled = false;
     (async () => {
       let query = supabase.from("cars_catalog").select("*").neq("id", car.id).eq("status", "live").limit(4);
+      query = dealerAuction ? query.neq("listing_type", "buy_now_only") : query.eq("listing_type", "buy_now_only").eq("access_type", "all");
       if (car.brand_id) query = query.eq("brand_id", car.brand_id);
       let { data } = await query;
       if ((!data || data.length === 0) && car.category_id) {
-        const fallback = await supabase.from("cars_catalog").select("*").neq("id", car.id).eq("status", "live").eq("category_id", car.category_id).limit(4);
+        let fallbackQuery = supabase.from("cars_catalog").select("*").neq("id", car.id).eq("status", "live").eq("category_id", car.category_id).limit(4);
+        fallbackQuery = dealerAuction ? fallbackQuery.neq("listing_type", "buy_now_only") : fallbackQuery.eq("listing_type", "buy_now_only").eq("access_type", "all");
+        const fallback = await fallbackQuery;
         data = fallback.data;
       }
       if (!cancelled) setSimilarCars(data || []);
     })();
     return () => { cancelled = true; };
-  }, [car?.id, car?.brand_id, car?.category_id]);
+  }, [car?.id, car?.brand_id, car?.category_id, dealerAuction]);
 
   if (loading) return <div className="min-h-[60vh] flex items-center justify-center text-gray-400">Loading…</div>;
-  if (error || !car) {
+  if (error || !car || (!dealerAuction && (car.listing_type !== "buy_now_only" || car.access_type !== "all"))) {
     return (
       <div className="min-h-[60vh] flex flex-col items-center justify-center text-center px-6">
         <p className="text-gray-500">{error || "This listing doesn't exist or has been removed."}</p>
-        <Link to="/#live-listings" className="mt-4 text-sm font-semibold underline underline-offset-4">Back to Live Listings</Link>
+        <Link to="/buy-car" className="mt-4 text-sm font-semibold underline underline-offset-4">Browse available cars</Link>
       </div>
     );
   }
 
-  const currentBid = isApprovedDealer ? car.current_bid_dealer : car.current_bid_buyer;
-  const basePrice = isApprovedDealer ? car.base_price_dealer : car.base_price_buyer;
-  const displayPrice = car.listing_type === "buy_now_only" ? car.buy_now_price : currentBid || basePrice;
-  const minIncrement = car.minimum_increment || 5000;
+  const displayPrice = car.buy_now_price ?? car.base_price_buyer;
 
   // EMI calculation — standard reducing-balance formula. loanAmount is the
   // buy-now price minus whatever down payment the buyer enters.
@@ -310,7 +296,7 @@ const RealCarDetail = () => {
   const vehicleDetailRows = [
     ["Variant", car.variant], ["Manufacturing Year", car.year], ["Registration Year", car.registration_year],
     ["Kilometer Driven", car.mileage_km != null ? `${Number(car.mileage_km).toLocaleString("en-IN")} km` : null],
-    ["Fuel Type", car.fuel_type_id ? "Petrol" : null], ["Transmission", car.transmission_id ? "Manual" : null],
+    ["Fuel Type", car.fuel_types?.name], ["Transmission", car.transmissions?.name],
     ["Ownership", car.ownership], ["Insurance Validity", car.insurance_validity],
     ["RTO", car.registration_state], ["Engine Capacity", car.engine_capacity],
     ["Power", car.horsepower ? `${car.horsepower} bhp` : null], ["Torque", car.torque],
@@ -334,19 +320,28 @@ const RealCarDetail = () => {
     { icon: FileText, label: "Fast RC Transfer" },
   ];
 
-  if (isApprovedDealer && car.listing_type !== "buy_now_only") {
+  if (dealerAuction && isApprovedDealer && car.listing_type !== "buy_now_only") {
     return <DealerCarDetail key={`${car.id}:${user.id}`} car={car} user={user} onCarChange={setCar} similarCars={similarCars}
       actions={<><ShareButton onShare={shareCar} justCopied={justCopied} /><WishlistButton isSaved={Boolean(wishlistRowId)} saving={wishlistSaving} onToggle={toggleWishlist} /></>}
       actionError={wishlistError || shareError} />;
   }
 
+  if (dealerAuction) return <div className="max-w-3xl mx-auto px-6 py-16 text-center"><p className="text-gray-600">This vehicle is available for direct purchase.</p><Link to={`/cars/${car.id}`} className="inline-block mt-4 text-brand font-semibold">View purchase details</Link></div>;
+
+  function purchaseAction(className) {
+    if (car.status !== "live") return <p className="text-sm py-3">This car is currently unavailable for purchase.</p>;
+    if (!user) return <Link to="/login" className={className}><ShoppingCart size={16} />Log In to Buy</Link>;
+    if (role !== "buyer") return <a href="tel:+917836008277" className={className}><PhoneCall size={16} />Call to enquire</a>;
+    return <button onClick={() => setBuyOpen(true)} className={className}><ShoppingCart size={16} />Buy Now — {formatINR(displayPrice)}</button>;
+  }
+
   return (
-    <div className={`max-w-6xl mx-auto px-4 py-8 ${isApprovedDealer && car.listing_type !== "buy_now_only" ? "pb-28 md:pb-8" : ""}`}>
+    <div className="max-w-6xl mx-auto px-4 py-8" data-purchase-detail>
       {/* Breadcrumb */}
       <div className="text-xs text-gray-500 flex items-center gap-1.5 mb-4">
         <Link to="/" className="hover:underline">Home</Link>
         <span>›</span>
-        <Link to="/#live-listings" className="hover:underline">Buy Cars</Link>
+        <Link to="/buy-car" className="hover:underline">Buy Cars</Link>
         <span>›</span>
         <span className="text-gray-800">{car.vehicle_title}</span>
       </div>
@@ -417,10 +412,10 @@ const RealCarDetail = () => {
           <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 mt-4">
             {[
               [Calendar, car.year, "Year"],
-              [Fuel, car.fuel_type_id ? "Petrol" : null, "Fuel"],
-              [Settings2, car.transmission_id ? "Manual" : null, "Transmission"],
+              [Fuel, car.fuel_types?.name, "Fuel"],
+              [Settings2, car.transmissions?.name, "Transmission"],
               [Gauge, car.mileage_km != null ? `${Math.round(Number(car.mileage_km) / 1000)}k km` : null, "Driven"],
-              [MapPin, car.location, "Delhi RTO"],
+              [MapPin, car.registration_state || car.location, "Registration"],
               [UserCheck, car.ownership ? `${car.ownership} Owner` : null, "Ownership"],
             ].filter(([, v]) => v).map(([Icon, value, label], i) => (
               <div key={i} className="border border-gray-200 rounded-lg p-2 text-center">
@@ -452,8 +447,8 @@ const RealCarDetail = () => {
           <div className="flex items-start justify-between gap-3">
             <div>
               {car.status === "live" && (
-                <p className="text-red-600 text-xs font-semibold flex items-center gap-1 mb-1">
-                  <span className="h-2 w-2 rounded-full bg-red-600 inline-block animate-pulse" /> LIVE
+                <p className="text-emerald-700 text-xs font-semibold flex items-center gap-1 mb-1">
+                  <CheckCircle2 size={13} /> Available for purchase
                 </p>
               )}
               <h1 className="text-2xl font-bold text-gray-900 leading-tight">{car.vehicle_title}</h1>
@@ -477,24 +472,14 @@ const RealCarDetail = () => {
           </div>
 
           <div className="mt-3 space-y-2">
-            {car.listing_type === "buy_now_only" && car.status === "live" && (role === "buyer" || !user) && !buyOpen && !buySent && (
-              user ? (
-                <button onClick={() => setBuyOpen(true)} className="w-full flex items-center justify-center gap-2 bg-navy-900 hover:bg-navy-700 text-white font-semibold py-3 rounded-xl transition">
-                  <ShoppingCart size={16} /> Buy Now — {formatINR(displayPrice)}
-                </button>
-              ) : (
-                <Link to="/login" className="w-full flex items-center justify-center gap-2 bg-navy-900 hover:bg-navy-700 text-white font-semibold py-3 rounded-xl transition">
-                  <ShoppingCart size={16} /> Log In to Buy
-                </Link>
-              )
-            )}
+            {!buyOpen && !buySent && purchaseAction("w-full flex items-center justify-center gap-2 bg-navy-900 hover:bg-navy-700 text-white font-semibold py-3 rounded-xl transition")}
           </div>
 
           <p className="flex items-center gap-1.5 text-[11px] text-emerald-600 mt-3">
             <Lock size={12} /> Our team will confirm availability and purchase details
           </p>
 
-          {!isApprovedDealer && role !== "dealer" && (
+          {role === "buyer" && (
             <div className="mt-4">
               {buySent ? (
                 <div className="flex items-start gap-2 text-emerald-600 border border-emerald-100 bg-emerald-50 rounded-xl p-4">
@@ -505,7 +490,7 @@ const RealCarDetail = () => {
                   </div>
                 </div>
               ) : buyOpen && user ? (
-                <div className="space-y-2 border border-gray-200 rounded-xl p-4">
+                <div id="purchase-request" className="space-y-2 border border-gray-200 rounded-xl p-4 scroll-mt-28">
                   <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Buy Now</p>
                   <input type="tel" value={buyPhone} onChange={(e) => setBuyPhone(e.target.value)} placeholder="Your phone number" className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm" />
                   <textarea value={buyMessage} onChange={(e) => setBuyMessage(e.target.value)} placeholder="Anything you'd like us to know? (optional)" rows={2} className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm resize-none" />
@@ -535,7 +520,7 @@ const RealCarDetail = () => {
       </div>
 
       <p className="text-xs text-gray-600 mb-3">
-        Deal directly with the seller — no bidding. A flat 3%
+        Deal directly with the seller. A flat 3%
         commission applies to both buyer and seller, and our
         representative stays with you through the entire deal.
       </p>
@@ -562,107 +547,8 @@ const RealCarDetail = () => {
 
       </div>
 
-      {/* Auction Panel — full width, moved down from the sidebar */}
+      {/* Direct purchase finance estimate */}
       <div className="bg-navy-gradient text-white rounded-2xl p-5 md:p-6 mt-6">
-        {car.listing_type !== "buy_now_only" ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {isApprovedDealer ? (
-              <div className="dealer-auction-overview">
-                <p className="dealer-eyebrow">DEALER AUCTION</p>
-                <h2>{car.vehicle_title}</h2>
-                <p>Review the vehicle condition, inspection report and documents before confirming a bid.</p>
-                <dl className="dealer-auction-facts">
-                  <div><dt>Starting price</dt><dd>{formatINR(car.base_price_dealer ?? car.starting_bid)}</dd></div>
-                  <div><dt>Reserve floor</dt><dd>{formatINR(car.reserve_price)}</dd></div>
-                  <div><dt>Minimum increment</dt><dd>{formatINR(minIncrement)}</dd></div>
-                  <div><dt>Auction closes</dt><dd>{car.auction_end ? new Date(car.auction_end).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) + ' IST' : 'Not scheduled'}</dd></div>
-                </dl>
-                <p>The highest bid is subject to seller approval. Your confirmed purchase will appear after the team marks the deal as sold.</p>
-                <Link to="/dealer/dashboard?tab=bids" className="dealer-secondary-button">View my auctions</Link>
-              </div>
-            ) : (
-            <div>
-              <div className="flex items-center justify-between mb-4">
-                <p className="text-red-400 text-xs font-semibold flex items-center gap-1.5">
-                  <span className="h-2 w-2 rounded-full bg-red-500 inline-block" /> {car.status === "live" && !countdown.isEnded ? "LIVE" : "CLOSED"}
-                </p>
-                <div className="flex items-center gap-2 text-white/60">
-                  <ShareButton onShare={shareCar} justCopied={justCopied} size={14} className="hover:text-white" />
-                  <WishlistButton isSaved={Boolean(wishlistRowId)} saving={wishlistSaving} onToggle={toggleWishlist} size={14} className="hover:text-white" />
-                </div>
-              </div>
-
-              {car.auction_end && (
-                <>
-                  <p className="text-[11px] text-white/60 mb-1.5">Auction Ends In</p>
-                  <div className="grid grid-cols-3 gap-2 mb-4 max-w-xs">
-                    {[[pad(countdown.hours), "HRS"], [pad(countdown.minutes), "MINS"], [pad(countdown.seconds), "SECS"]].map(([val, label]) => (
-                      <div key={label} className="bg-white/10 rounded-lg text-center py-2">
-                        <p className="text-lg font-bold tabular-nums">{val}</p>
-                        <p className="text-[9px] text-white/50">{label}</p>
-                      </div>
-                    ))}
-                  </div>
-                </>
-              )}
-
-              {/* Current bid card */}
-              <div className="bg-white/5 border border-white/10 rounded-2xl p-4">
-                <p className="text-[11px] text-white/60">Current Highest Bid</p>
-                <p className="text-3xl font-extrabold mt-0.5">{formatINR(currentBid)}</p>
-                <p className="text-[11px] text-white/40 mt-0.5">
-                  {isApprovedDealer ? "Verified dealer bids · review your status in the bidding panel" : "Current auction standing"}
-                </p>
-                <div className="grid grid-cols-3 gap-2 mt-3 pt-3 border-t border-white/10 text-xs">
-                  <div><p className="text-white/50">Starting Bid</p><p className="font-semibold">{formatINR(car.starting_bid)}</p></div>
-                  <div><p className="text-white/50">Reserve Price</p><p className="font-semibold">{formatINR(car.reserve_price)}</p></div>
-                  <div><p className="text-white/50">Min Increment</p><p className="font-semibold">{formatINR(minIncrement)}</p></div>
-                </div>
-
-              </div>
-
-              {!isApprovedDealer && (
-                <div className="mt-5 md:hidden">
-                  {!countdown.isEnded ? (
-                    !user ? (
-                      <Link to="/login" className="w-full flex items-center justify-center gap-2 bg-white text-navy-900 font-semibold py-3 rounded-xl hover:bg-white/90 transition">
-                        Log In to Bid / Buy
-                      </Link>
-                    ) : (
-                      <button onClick={() => setBuyOpen(true)} className="w-full flex items-center justify-center gap-2 bg-white text-navy-900 font-semibold py-3 rounded-xl hover:bg-white/90 transition">
-                        <ShoppingCart size={16} /> Buy Now — {formatINR(displayPrice)}
-                      </button>
-                    )
-                  ) : (
-                    <p className="text-center text-[11px] text-white/50">This auction has ended</p>
-                  )}
-                </div>
-              )}
-            </div>
-            )}
-
-            {/* Right half: bidding actions */}
-            <div>
-              {isApprovedDealer ? (
-                <DealerBidPanel key={`${car.id}:${user.id}`} car={car} onCarChange={setCar} />
-              ) : !isApprovedDealer ? (
-                <div className="hidden md:flex h-full items-center justify-center">
-                  {!user ? (
-                    <Link to="/login" className="w-full flex items-center justify-center gap-2 bg-white text-navy-900 font-semibold py-3 rounded-xl hover:bg-white/90 transition">
-                      Log In to Bid / Buy
-                    </Link>
-                  ) : (
-                    <button onClick={() => setBuyOpen(true)} className="w-full flex items-center justify-center gap-2 bg-white text-navy-900 font-semibold py-3 rounded-xl hover:bg-white/90 transition">
-                      <ShoppingCart size={16} /> Buy Now — {formatINR(displayPrice)}
-                    </button>
-                  )}
-                </div>
-              ) : (
-                <p className="text-center text-[11px] text-white/50 mt-2">This auction has ended</p>
-              )}
-            </div>
-          </div>
-        ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div>
             <p className="text-white/60 text-xs font-semibold uppercase tracking-wide mb-3 flex items-center gap-1.5">
@@ -734,15 +620,7 @@ const RealCarDetail = () => {
 
             <p className="text-[10px] text-white/40 mt-2">Indicative only — actual EMI depends on lender terms and eligibility.</p>
 
-            {user ? (
-              <button onClick={() => setBuyOpen(true)} className="w-full mt-4 flex items-center justify-center gap-2 bg-white text-navy-900 font-semibold py-3 rounded-xl hover:bg-white/90 transition">
-                <ShoppingCart size={16} /> Buy Now — {formatINR(displayPrice)}
-              </button>
-            ) : (
-              <Link to="/login" className="w-full mt-4 flex items-center justify-center gap-2 bg-white text-navy-900 font-semibold py-3 rounded-xl hover:bg-white/90 transition">
-                <ShoppingCart size={16} /> Log In to Buy
-              </Link>
-            )}
+            {purchaseAction("w-full mt-4 flex items-center justify-center gap-2 bg-white text-navy-900 font-semibold py-3 rounded-xl hover:bg-white/90 transition")}
           </div>
 
           {/* Sold By — moved up beside the EMI calculator */}
@@ -766,13 +644,10 @@ const RealCarDetail = () => {
             <div className="mt-5 border border-white/15 rounded-xl p-3 text-center">
               <p className="text-sm font-semibold text-white">Have Questions?</p>
               <p className="text-[11px] text-white/40 mb-2">Request a callback from our experts</p>
-              <button onClick={() => (user ? setBuyOpen(true) : scrollTo("Overview"))} className="w-full flex items-center justify-center gap-1.5 border border-brand text-brand text-sm font-semibold py-2 rounded-lg hover:bg-brand/10 transition">
-                <PhoneCall size={14} /> Request Callback
-              </button>
+              <a href="tel:+917836008277" className="w-full flex items-center justify-center gap-1.5 border border-brand text-brand text-sm font-semibold py-2 rounded-lg hover:bg-brand/10 transition"><PhoneCall size={14} />Call for purchase help</a>
             </div>
           </div>
           </div>
-        )}
       </div>
 
       {/* Trust strip */}
@@ -968,10 +843,10 @@ const RealCarDetail = () => {
         <div id="similar-cars" className="mt-10 scroll-mt-24">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-lg font-bold text-gray-900">Similar Cars You May Like</h2>
-            <Link to="/#live-listings" className="text-xs font-semibold text-brand hover:text-brand-600">View All</Link>
+            <Link to="/buy-car" className="text-xs font-semibold text-brand hover:text-brand-600">View All</Link>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            {similarCars.map((c) => <CarCard key={c.id} car={c} isApprovedDealer={isApprovedDealer} />)}
+            {similarCars.map((c) => <CarCard key={c.id} car={c} />)}
           </div>
         </div>
       )}

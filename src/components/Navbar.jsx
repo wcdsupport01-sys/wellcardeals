@@ -30,7 +30,7 @@ const Navbar = () => {
 
   // Approved dealers can return directly to their auction workspace from a car.
   // Other public pages retain the buyer-facing navigation.
-  const dealerVehicle = Boolean(user && role === "dealer" && dealerStatus === "approved" && location.pathname.startsWith("/cars/"));
+  const dealerVehicle = Boolean(user && role === "dealer" && dealerStatus === "approved" && location.pathname.startsWith("/dealer/auctions/"));
   const navItems = dealerVehicle ? [
     { name: "Live auctions", path: "/dealer/dashboard?tab=live", active: true },
     { name: "My bids", path: "/dealer/dashboard?tab=bids" },

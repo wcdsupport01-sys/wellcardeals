@@ -13,7 +13,7 @@ const image = await readFile(new URL("../src/assets/car.jpg", import.meta.url));
 let role = "dealer", submits = 0, signings = 0;
 let car = {
   id, vehicle_title: "BMW 320d Sport", variant: "2.0 diesel · Automatic", year: 2021,
-  location: "New Delhi", registration_state: "DL", ownership: "1st", mileage_km: 42000,
+  location: "New Delhi", registration_state: "DL", ownership: "1st", mileage_km: 42000, access_type: "all",
   fuel_type_id: "diesel-id", transmission_id: "automatic-id", status: "live", listing_type: "auction",
   auction_end: new Date(Date.now() + 3600000).toISOString(), current_bid_dealer: 1800000,
   current_bid_buyer: 1900000, base_price_dealer: 1700000, base_price_buyer: 1850000,
@@ -55,7 +55,7 @@ await page.route("**/rest/v1/**", (route) => {
   if (endpoint === "wishlist") return route.fulfill({ json: null });
   return route.fulfill({ json: [] });
 });
-const open = async () => { await page.goto(origin + "/cars/" + id); await page.getByRole("heading", { name: car.vehicle_title, exact: true }).waitFor(); };
+const open = async (purchase = false) => { await page.goto(origin + (purchase ? "/cars/" : "/dealer/auctions/") + id); await page.getByRole("heading", { name: car.vehicle_title, exact: true }).waitFor(); };
 const fits = () => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth);
 try {
   await open();
@@ -158,13 +158,12 @@ try {
   await page.getByText("Inspection report not available for this listing yet.", { exact: true }).waitFor();
   assert.equal(await page.getByRole("region", { name: "Vehicle highlights" }).getByText("Not specified", { exact: true }).count(), 2);
   car = { ...car, listing_type: "buy_now_only", buy_now_price: 2000000 };
-  await open();
+  await open(true);
   assert.equal(await page.locator(".dealer-detail-page").count(), 0);
   assert.equal(await page.locator("#dealer-bidding").count(), 0);
   await page.getByText("EMI Calculator", { exact: true }).waitFor();
   role = "buyer";
-  car = { ...car, listing_type: "auction" };
-  await open();
+  await open(true);
   assert.equal(await page.locator(".dealer-detail-page").count(), 0);
   assert.equal(await page.locator("#dealer-bidding").count(), 0);
   assert.equal(await page.locator(".dealer-detail-navbar").count(), 0);

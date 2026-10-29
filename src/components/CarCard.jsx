@@ -93,19 +93,21 @@ function Spec({ icon: Icon, label }) {
 export default function CarCard({
   car,
   isApprovedDealer = false,
+  mode = "buy",
   onToggleWishlist,
   wishlisted = false,
 }) {
   const countdown = useCountdownTo(car.auction_end);
 
-  const isBuyNow = car.listing_type === "buy_now_only";
-  const isAuction = !isBuyNow;
+  const isAuction = mode === "auction" && isApprovedDealer && car.listing_type !== "buy_now_only";
+  const isBuyNow = !isAuction;
+  const detailUrl = isAuction ? `/dealer/auctions/${car.id}` : `/cars/${car.id}`;
 
-  const basePrice = isApprovedDealer
+  const basePrice = isAuction
     ? car.base_price_dealer
     : car.base_price_buyer;
 
-  const currentBid = isApprovedDealer
+  const currentBid = isAuction
     ? car.current_bid_dealer
     : car.current_bid_buyer;
 
@@ -156,7 +158,7 @@ export default function CarCard({
 
       {/* Car image */}
       <Link
-        to={`/cars/${car.id}`}
+        to={detailUrl}
         className="relative block h-48 bg-[#F5F8FD] overflow-hidden"
       >
         {cover ? (
@@ -252,7 +254,7 @@ export default function CarCard({
 
       {/* Car details */}
       <div className="flex flex-col flex-1 p-4">
-        <Link to={`/cars/${car.id}`}>
+        <Link to={detailUrl}>
           <h3 className="text-[15px] font-bold text-[#0B2545] leading-snug truncate group-hover:text-[#2563EB] transition">
             {car.vehicle_title || "Vehicle Details"}
           </h3>
@@ -312,7 +314,7 @@ export default function CarCard({
 
         {/* Action */}
         <Link
-          to={`/cars/${car.id}`}
+          to={detailUrl}
           className="mt-3 flex items-center justify-center gap-2 w-full rounded-xl bg-[#2563EB] hover:bg-[#1D4ED8] text-white text-sm font-semibold py-2.5 transition"
         >
           <ButtonIcon size={15} />

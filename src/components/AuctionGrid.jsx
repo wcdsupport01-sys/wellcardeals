@@ -28,7 +28,7 @@ const AuctionGrid = ({
     setLoading(true);
     setError(null);
 
-    fetchAuctionCars(role, { dealerStatus })
+    fetchAuctionCars(mode === "auction" ? role : "buyer", { dealerStatus, purchaseOnly: mode !== "auction" })
       .then((data) => {
         if (!cancelled) {
           setCars(data || []);
@@ -49,10 +49,10 @@ const AuctionGrid = ({
     return () => {
       cancelled = true;
     };
-  }, [role, dealerStatus, authLoading]);
+  }, [role, dealerStatus, authLoading, mode]);
 
   const isApprovedDealer =
-    role === "dealer" && dealerStatus === "approved";
+    mode === "auction" && role === "dealer" && dealerStatus === "approved";
 
   const modeCars = cars.filter((car) => {
     if (mode === "buy_now") {
@@ -66,7 +66,7 @@ const AuctionGrid = ({
       return car.listing_type !== "buy_now_only";
     }
 
-    return true;
+    return car.listing_type === "buy_now_only" && car.access_type === "all";
   });
 
   const visibleCars = modeCars.filter((car) => {
@@ -243,6 +243,7 @@ const AuctionGrid = ({
                 <CarCard
                   car={car}
                   isApprovedDealer={isApprovedDealer}
+                  mode={mode === "auction" ? "auction" : "buy"}
                 />
               </div>
             ))}
@@ -272,6 +273,7 @@ const AuctionGrid = ({
             key={car.id}
             car={car}
             isApprovedDealer={isApprovedDealer}
+            mode={mode === "auction" ? "auction" : "buy"}
           />
         ))}
       </AnimatePresence>

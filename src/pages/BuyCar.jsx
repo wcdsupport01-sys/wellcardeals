@@ -40,7 +40,7 @@ export default function BuyCar() {
   }
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 py-24 sm:py-28">
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 py-14 sm:py-16" data-buy-car>
       <div className="flex items-center gap-2 mb-2 text-[#1E6FD9]">
         <ShoppingCart size={20} className="sm:hidden" />
         <ShoppingCart size={22} className="hidden sm:block" />
@@ -48,8 +48,8 @@ export default function BuyCar() {
       </div>
       <h1 className="text-2xl sm:text-3xl font-bold text-[#0B2545] mb-2">Buy Used Cars</h1>
       <p className="text-gray-500 mb-6 max-w-2xl text-sm sm:text-base">
-        Browse from thousands of verified used cars. Every listing is inspected — buy directly at the
-        listed price, or place a bid where an auction is live.
+        Find a used car at its listed price. Review photos, vehicle details and available
+        inspection reports, then contact our team to confirm availability and purchase details.
       </p>
 
       {/* Search + Filter bar */}
@@ -124,7 +124,7 @@ export default function BuyCar() {
       <div className="mt-10 sm:mt-14 flex items-center gap-3 border border-gray-200 rounded-2xl px-4 sm:px-6 py-4 sm:py-5 bg-[#DCEAFB]">
         <ShoppingCart size={20} className="text-[#1E6FD9] shrink-0" />
         <p className="text-xs sm:text-sm text-gray-600">
-          Dealers get access to additional dealer-only inventory and live bidding from the Dealer Dashboard.
+          Need help choosing a car? Our team can help with vehicle details, purchase enquiries and finance options.
         </p>
       </div>
 

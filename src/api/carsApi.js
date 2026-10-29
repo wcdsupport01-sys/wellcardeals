@@ -16,13 +16,14 @@ function requireSupabase() {
 // Bidding permissions must be enforced separately in the backend.
 export async function fetchAuctionCars(
   userRole,
-  { dealerStatus, status = "live" } = {}
+  { dealerStatus, status = "live", purchaseOnly = false } = {}
 ) {
   const db = requireSupabase();
 
   return readPages(() => {
   let query = db.from("cars_catalog").select("*, fuel_types(name), transmissions(name), body_types(name), brands(name), models(name)", {count:"exact"});
   if (status) query=query.eq("status",status);
+  if (purchaseOnly) query=query.eq("listing_type","buy_now_only");
 
   const isApprovedDealer =
     userRole === "dealer" &&

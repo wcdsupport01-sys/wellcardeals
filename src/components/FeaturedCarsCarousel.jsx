@@ -12,7 +12,7 @@ import CarCard from "./CarCard";
  * of hardcoded/dummy cars. No budget tabs, no fake data — only live cars.
  */
 const FeaturedCarsCarousel = ({ limit = 8, viewMoreLink = "/buy-car" }) => {
-  const { role, dealerStatus, loading: authLoading } = useAuth();
+  const { loading: authLoading } = useAuth();
   const [cars, setCars] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -24,9 +24,9 @@ const FeaturedCarsCarousel = ({ limit = 8, viewMoreLink = "/buy-car" }) => {
     setLoading(true);
     setError(null);
 
-    fetchAuctionCars(role, { dealerStatus })
+    fetchAuctionCars("buyer", { purchaseOnly: true })
       .then((data) => {
-        if (!cancelled) setCars(data || []);
+        if (!cancelled) setCars((data || []).filter((car) => car.listing_type === "buy_now_only" && car.access_type === "all"));
       })
       .catch((err) => {
         if (!cancelled) setError(err.message);
@@ -38,9 +38,7 @@ const FeaturedCarsCarousel = ({ limit = 8, viewMoreLink = "/buy-car" }) => {
     return () => {
       cancelled = true;
     };
-  }, [role, dealerStatus, authLoading]);
-
-  const isApprovedDealer = role === "dealer" && dealerStatus === "approved";
+  }, [authLoading]);
   const displayCars = limit ? cars.slice(0, limit) : cars;
 
   const scrollByAmount = (dir) => {
@@ -119,7 +117,7 @@ const FeaturedCarsCarousel = ({ limit = 8, viewMoreLink = "/buy-car" }) => {
                   key={car.id}
                   className="w-[78%] sm:w-[45%] md:w-[31%] lg:w-[23%] shrink-0 snap-start"
                 >
-                  <CarCard car={car} isApprovedDealer={isApprovedDealer} />
+                  <CarCard car={car} />
                 </div>
               ))}
 

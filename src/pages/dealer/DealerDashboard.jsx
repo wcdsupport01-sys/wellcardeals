@@ -300,7 +300,7 @@ export default function DealerDashboard() {
           const live = car.is_live && remaining !== "Ended";
           const urgent = live && Date.parse(car.auction_end) - now <= 300000;
           const image = car.thumbnail_url || car.images?.[0];
-          const detailUrl = `/cars/${car.id}#dealer-bidding`;
+          const detailUrl = `/dealer/auctions/${car.id}`;
           return (
             <article key={car.id} className="dealer-auction-card">
               <div className="dealer-car-photo">

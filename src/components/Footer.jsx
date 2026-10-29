@@ -1,9 +1,11 @@
 import React from "react";
 import { Facebook, Instagram, Mail, Phone, MapPin } from "lucide-react";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import logo from "../assets/logo1-real.png";
 
 const Footer = () => {
+    const { pathname } = useLocation();
+    const purchasePage = pathname === "/buy-car" || pathname.startsWith("/cars/");
     return (
         <footer className="bg-navy-gradient text-navy-100 pt-20 pb-10">
             <div className="max-w-7xl mx-auto px-8">
@@ -21,8 +23,7 @@ const Footer = () => {
                         </h3>
 
                         <p className="mt-4 text-sm text-navy-300 leading-relaxed">
-                            A private dealer auction platform built for transparency, speed,
-                            and trusted transactions across India.
+                            {purchasePage ? "Explore used cars, compare listed prices and get support with your purchase." : "A private dealer auction platform built for transparency, speed, and trusted transactions across India."}
                         </p>
 
                         {/* Social */}
@@ -62,7 +63,12 @@ const Footer = () => {
                     <div>
                         <h3 className="text-white font-semibold mb-4 font-display">Services</h3>
                         <ul className="space-y-3 text-sm">
-                            {[
+                            {purchasePage ? [
+                                { name: "Vehicle Inspection", path: "/pdi-service" },
+                                { name: "RC Verification", path: "/rc-check" },
+                                { name: "Car Loan & EMI", path: "/car-loan-emi" },
+                                { name: "Purchase Support", path: "/contact" },
+                            ].map((item) => <li key={item.path}><Link to={item.path} className="hover:text-accent-400 transition">{item.name}</Link></li>) : [
                                 "Dealer Onboarding",
                                 "Vehicle Auctions",
                                 "Secure Transactions",
