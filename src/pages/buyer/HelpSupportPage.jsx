@@ -9,7 +9,7 @@ const CONTACTS = [
 const FAQS = [
   {
     q: "How do I buy a car?",
-    a: "Browse listings under Buy Cars, open a car you like, and either purchase at the listed price or place a bid where an auction is live.",
+    a: "Browse Buy Car, open a car you like, review its details and listed price, then send a purchase request. Our team will confirm availability and the next steps.",
   },
   {
     q: "How do I sell my car?",
