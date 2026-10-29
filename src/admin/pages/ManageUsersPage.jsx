@@ -1,3 +1,4 @@
+import AdminRecordCollection from "../components/AdminRecordCollection";
 import { useEffect, useMemo, useState } from "react";
 import { UserPlus, Loader2, AlertCircle, Copy, Check, ShieldBan, XCircle, RotateCcw, Search, KeyRound, X } from "lucide-react";
 import { supabase } from "../../lib/supabaseClient";
@@ -321,7 +322,7 @@ export default function ManageUsersPage() {
       ) : filtered.length === 0 ? (
         <p className="text-sm text-zinc-500">No users match.</p>
       ) : (
-        <div className="space-y-3">
+        <AdminRecordCollection rows={filtered} kind="user">
           {filtered.map((u) => {
             const isSelf = u.id === currentUser?.id;
             return (
@@ -405,7 +406,7 @@ export default function ManageUsersPage() {
               </div>
             );
           })}
-        </div>
+        </AdminRecordCollection>
       )}
 
       {newCredential && (

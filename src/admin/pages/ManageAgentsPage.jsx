@@ -1,3 +1,6 @@
+import AdminRecordCollection from "../components/AdminRecordCollection";
+import AdminDialog from "../components/AdminDialog";
+import CredentialField from "../components/CredentialField";
 import { useEffect, useState } from "react";
 import { UserPlus, Loader2, AlertCircle, Copy, Check, X, KeyRound } from "lucide-react";
 import { supabase } from "../../lib/supabaseClient";
@@ -8,30 +11,6 @@ const STATUS_STYLES = {
   suspended: "bg-red-500/15 text-red-400",
   pending: "bg-amber-500/15 text-amber-400",
 };
-
-function CopyRow({ label, value }) {
-  const [copied, setCopied] = useState(false);
-  return (
-    <div className="flex items-center justify-between gap-3 rounded-xl bg-zinc-900/70 border border-white/10 px-4 py-3">
-      <div>
-        <p className="text-xs text-zinc-500">{label}</p>
-        <p className="text-lg font-mono font-semibold text-white tracking-wide">{value}</p>
-      </div>
-      <button
-        type="button"
-        onClick={() => {
-          navigator.clipboard.writeText(value);
-          setCopied(true);
-          setTimeout(() => setCopied(false), 1500);
-        }}
-        className="shrink-0 rounded-lg border border-white/10 px-3 py-1.5 text-xs text-zinc-300 hover:bg-white/5 flex items-center gap-1.5"
-      >
-        {copied ? <Check size={13} className="text-emerald-400" /> : <Copy size={13} />}
-        {copied ? "Copied" : "Copy"}
-      </button>
-    </div>
-  );
-}
 
 export default function ManageAgentsPage() {
   const [agents, setAgents] = useState([]);
@@ -119,7 +98,8 @@ export default function ManageAgentsPage() {
       });
       if (error) throw error;
       if (data?.error) throw new Error(data.error);
-      setCredentials(data); // reuses the same "shown once" modal as Add Agent
+      if (!data?.password || data.agentCode !== agent.agent_code) throw new Error("Password receipt could not be verified. Review the account before retrying.");
+      setCredentials(data);
     } catch (err) {
       alert(err.message || "Couldn't reset password.");
     } finally {
@@ -151,7 +131,7 @@ export default function ManageAgentsPage() {
       ) : agents.length === 0 ? (
         <p className="text-sm text-zinc-500">No agents yet.</p>
       ) : (
-        <div className="space-y-3">
+        <AdminRecordCollection rows={agents} kind="agent" searchable>
           {agents.map((a) => (
             <div
               key={a.id}
@@ -195,7 +175,7 @@ export default function ManageAgentsPage() {
               </div>
             </div>
           ))}
-        </div>
+        </AdminRecordCollection>
       )}
 
       {/* --- Add agent modal --- */}
@@ -256,29 +236,8 @@ export default function ManageAgentsPage() {
         </div>
       )}
 
-      {/* --- Credentials shown once --- */}
-      {credentials && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60">
-          <div className="w-full max-w-sm rounded-2xl border border-emerald-500/30 bg-zinc-950 p-6">
-            <h2 className="text-lg font-semibold text-white mb-1">
-              {credentials.agentCode ? "Credentials" : "Password Reset"}
-            </h2>
-            <p className="text-xs text-amber-400 mb-4">
-              Save this now — the password won't be shown again. Share it directly with {credentials.fullName}.
-            </p>
-            <div className="space-y-3">
-              <CopyRow label="Agent ID" value={credentials.agentCode} />
-              <CopyRow label="Password" value={credentials.password} />
-            </div>
-            <button
-              onClick={() => setCredentials(null)}
-              className="mt-5 w-full rounded-xl bg-white/10 hover:bg-white/15 text-white font-medium py-2.5"
-            >
-              Done
-            </button>
-          </div>
-        </div>
-      )}
+      {credentials && <AdminDialog title="Agent login credentials" onClose={()=>setCredentials(null)}><p className="aw-muted">Copy the new credentials now and share them with {credentials.fullName}. Closing this window clears the password from the panel.</p><CredentialField label="Agent login ID" value={credentials.agentCode}/><CredentialField label="New password" value={credentials.password} secret/><button type="button" className="aw-button aw-primary" onClick={()=>setCredentials(null)}>Done</button></AdminDialog>}
+
     </div>
   );
 }

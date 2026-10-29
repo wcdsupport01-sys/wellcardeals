@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Plus } from "lucide-react";
 import { inputClass } from "./FormSection";
 
-export default function FeaturePicker({ category, allFeatures, selected, onChange, onAddNew }) {
+export default function FeaturePicker({ category, allFeatures, selected, onChange, onAddNew, labelledBy }) {
   const [newValue, setNewValue] = useState("");
   const options = allFeatures.filter((f) => f.category === category);
 
@@ -20,7 +20,7 @@ export default function FeaturePicker({ category, allFeatures, selected, onChang
   }
 
   return (
-    <div className="flex flex-col gap-2">
+    <div role="group" aria-labelledby={labelledBy} className="flex flex-col gap-2">
       <div className="flex flex-wrap gap-2">
         {options.map((f) => {
           const active = selected.includes(f.name);

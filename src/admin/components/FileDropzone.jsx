@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
 import { UploadCloud, X, FileText } from "lucide-react";
 
-export default function FileDropzone({ accept, multiple = true, files, onChange, label, light = false }) {
+export default function FileDropzone({ accept, multiple = true, files, onChange, label, labelledBy, light = false }) {
   const inputRef = useRef(null);
   const [dragOver, setDragOver] = useState(false);
 
@@ -42,6 +42,7 @@ export default function FileDropzone({ accept, multiple = true, files, onChange,
         <input
           ref={inputRef}
           type="file"
+          aria-labelledby={labelledBy}
           accept={accept}
           multiple={multiple}
           className="hidden"
@@ -68,6 +69,7 @@ export default function FileDropzone({ accept, multiple = true, files, onChange,
               )}
               <button
                 type="button"
+                aria-label={`Remove ${f.name}`}
                 onClick={() => removeAt(i)}
                 className="absolute top-1 right-1 bg-black/70 rounded-full p-1 opacity-0 group-hover:opacity-100 transition"
               >

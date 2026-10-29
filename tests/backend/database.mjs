@@ -53,6 +53,25 @@ try {
   for (const [actor,role,status] of [[admin,'admin','approved'],[manager,'manager','approved'],[lead,'team_lead','approved'],[agent,'agent','approved'],[buyer,'buyer','approved'],[dealer,'dealer','approved'],[other,'buyer','approved'],[suspended,'admin','suspended']]) {
     sql(`INSERT INTO auth.users(id,email) VALUES('${actor}','user${actor.slice(-2)}@example.test'); INSERT INTO public.profiles(id,role,status,email) VALUES('${actor}','${role}','${status}','user${actor.slice(-2)}@example.test')`);
   }
+  // Approved admin workspace: additive read-only activity, role checks and stable pagination.
+  sql(readFileSync('supabase/admin_workspace_activity.sql','utf8'));
+  sql(readFileSync('supabase/admin_workspace_activity.sql','utf8')); // Reapplying is safe.
+  for(const actor of [buyer,dealer,agent,suspended]) denied(actor,'SELECT public.backend_staff_activity()',/Active staff/);
+  assert.throws(()=>sql(as('', 'SELECT public.backend_staff_activity()', 'anon')),/permission denied/);
+  assert.throws(()=>sql(as(admin,'SELECT public.backend_staff_activity(NULL,NULL,201)')),/Invalid activity/);
+  assert.throws(()=>sql(as(admin,'SELECT public.backend_staff_activity(now(),NULL)')),/Invalid activity/);
+  for(const actor of [admin,manager,lead]) assert.deepEqual(JSON.parse(sql(as(actor,'SELECT public.backend_staff_activity()'))).rows,[]);
+  for(let n=1;n<=3;n++)sql(`INSERT INTO public.backend_audit_events(id,actor_id,action,entity_id,operation_id,details,created_at) VALUES('${id(8000+n)}','${admin}','update','fixture-${n}','${id(8100+n)}','{"status":"draft","password":"synthetic-never-return","seller_phone":"synthetic-private"}',now()-interval '1 day')`);
+  const activity=JSON.parse(sql(as(admin,'SELECT public.backend_staff_activity(NULL,NULL,2)')));
+  assert.equal(activity.rows.length,2);assert.equal(activity.rows[0].id,id(8003));assert(activity.next_cursor);
+  assert.deepEqual(activity.rows[0].details,{status:'draft'});
+  assert.equal(JSON.stringify(activity).includes('synthetic-never-return'),false);
+  const activityNext=JSON.parse(sql(as(lead,`SELECT public.backend_staff_activity('${activity.next_cursor.time}','${activity.next_cursor.id}',2,'${activity.as_of}')`)));
+  assert.deepEqual(activityNext.rows.map(r=>r.id),[id(8001)]);assert.equal(activityNext.next_cursor,null);
+  assert.equal(sql('SELECT count(*) FROM public.backend_audit_events'),'3','reads must not mutate history');
+  assert.equal(sql("SELECT has_table_privilege('authenticated','public.backend_audit_events','SELECT')"),'f');
+  sql(`DELETE FROM public.backend_audit_events WHERE id IN ('${id(8001)}','${id(8002)}','${id(8003)}')`);
+  console.log('PASS admin activity SQL: idempotent migration, staff-only access, redacted details, stable tie pagination and no raw table grants');
   assert.throws(()=>ok(buyer,'create',{fields:{vehicle_title:'Forbidden'}}),/cannot perform/);
   assert.throws(()=>ok(lead,'create',{fields:{vehicle_title:'Forbidden'}}),/cannot perform/);
   assert.throws(()=>ok(suspended,'create',{fields:{vehicle_title:'Forbidden'}}),/cannot perform/);

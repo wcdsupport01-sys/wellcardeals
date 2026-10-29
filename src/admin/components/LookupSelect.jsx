@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Plus, X, Loader2 } from "lucide-react";
 import { inputClass } from "./FormSection";
 
-export default function LookupSelect({ options, value, onChange, onAddNew, placeholder = "Select..." }) {
+export default function LookupSelect({ options, value, onChange, onAddNew, labelledBy, placeholder = "Select..." }) {
   const [adding, setAdding] = useState(false);
   const [newValue, setNewValue] = useState("");
   const [saving, setSaving] = useState(false);
@@ -59,7 +59,7 @@ export default function LookupSelect({ options, value, onChange, onAddNew, place
 
   return (
     <div className="flex gap-2">
-      <select
+      <select aria-labelledby={labelledBy}
         className={inputClass}
         value={value || ""}
         onChange={(e) => onChange(e.target.value || null)}

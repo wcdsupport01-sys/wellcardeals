@@ -23,20 +23,22 @@ export const supabase={
 try {
  await page.goto('http://127.0.0.1:5173/admin/agent-submissions');
  await page.getByText('Agent inspection car',{exact:true}).waitFor();
+ await page.getByRole('button',{name:'View details',exact:true}).first().click();
  await page.getByRole('button',{name:'Approve & Publish'}).click();
  await page.getByRole('button',{name:'Approve & Publish'}).waitFor({state:'hidden'});
- let calls=await page.evaluate(()=>window.commandCalls);
+ let calls=await page.evaluate(()=>window.commandCalls.filter(c=>c.name==='backend_car_command'));
  assert.equal(calls.length,1);assert.equal(calls[0].args.p_action,'agent_review');assert.equal(calls[0].args.p_payload.decision,'approved');
  assert.equal(calls[0].args.p_payload.fields,undefined);
  await page.goto('http://127.0.0.1:5173/admin/buy-requests');
  await page.getByText(/Fixture Buyer/).waitFor();
+ await page.getByRole('button',{name:'View details',exact:true}).first().click();
  await page.getByRole('button',{name:'Mark Sold',exact:true}).click();
- calls=await page.evaluate(()=>window.commandCalls);assert.equal(calls[0].args.p_action,'purchase_complete');
+ calls=await page.evaluate(()=>window.commandCalls.filter(c=>c.name==='backend_car_command'));assert.equal(calls[0].args.p_action,'purchase_complete');
  await page.evaluate(()=>sessionStorage.setItem('fixtureRole','team_lead'));
  await page.goto('http://127.0.0.1:5173/admin/buy-requests');
- await page.getByText(/Fixture Buyer/).waitFor();assert(await page.getByRole('button',{name:'Mark Sold',exact:true}).isDisabled());
+ await page.getByText(/Fixture Buyer/).waitFor();await page.getByRole('button',{name:'View details',exact:true}).first().click();assert(await page.getByRole('button',{name:'Mark Sold',exact:true}).isDisabled());
  await page.goto('http://127.0.0.1:5173/admin/agent-submissions');
- await page.getByRole('button',{name:'Approve & Publish'}).waitFor();assert(await page.getByRole('button',{name:'Approve & Publish'}).isEnabled());
+ await page.getByRole('button',{name:'View details',exact:true}).first().click();await page.getByRole('button',{name:'Approve & Publish'}).waitFor();assert(await page.getByRole('button',{name:'Approve & Publish'}).isEnabled());
  await page.evaluate(()=>sessionStorage.setItem('fixtureRole','buyer'));
  await page.goto('http://127.0.0.1:5173/cars/00000000-0000-0000-0000-000000000002');
  await page.getByRole('button',{name:'Buy Now — ₹1,23,000',exact:true}).first().click();

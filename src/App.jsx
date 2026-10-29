@@ -52,6 +52,8 @@ import AgentProfilePage from "./pages/agent/AgentProfilePage";
 
 import AdminLogin from "./admin/AdminLogin";
 import AdminLayout from "./admin/AdminLayout";
+import ReportsPage from "./admin/pages/ReportsPage";
+import ActivityPage from "./admin/pages/ActivityPage";
 import AddCarPage from "./admin/pages/AddCarPage";
 import Dashboard from "./admin/pages/Dashboard";
 import ManageLookupsPage from "./admin/pages/ManageLookupsPage";
@@ -226,6 +228,8 @@ function App() {
           >
             <Route index element={<Dashboard />} />
             <Route path="dashboard" element={<Dashboard />} />
+            <Route path="reports" element={<StaffOnly allow={["admin","manager"]}><ReportsPage/></StaffOnly>}/>
+            <Route path="activity" element={<StaffOnly allow={["admin","manager","team_lead"]}><ActivityPage/></StaffOnly>}/>
             <Route path="inventory" element={<InventoryPage />} />
             <Route
               path="add-car"

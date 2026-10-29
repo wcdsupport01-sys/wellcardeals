@@ -1,3 +1,7 @@
+import { exportCSV as downloadCSV } from "../lib/csv";
+import VehicleEditor from "../components/VehicleEditor";
+import AdminDialog from "../components/AdminDialog";
+import { Link, useSearchParams } from "react-router-dom";
 
 import { useEffect, useMemo, useState } from "react";
 import {
@@ -14,8 +18,7 @@ import { useAuth } from "../../auth/AuthContext";
 import { supabase } from "../../lib/supabaseClient";
 import {
   fetchCars,
-  updateCar,
-  uploadCarFile
+  updateCar
 } from "../lib/carsApi";
 
 import {
@@ -146,7 +149,7 @@ function Modal({ title, children, onClose, wide = false }) {
 // ============================================================
 
 function AuctionTimer({ endTime }) {
-  const [now, setNow] = useState(Date.now());
+  const [now, setNow] = useState(()=>Date.now());
 
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 1000);
@@ -183,776 +186,10 @@ function AuctionTimer({ endTime }) {
 // ============================================================
 
 
-const WCD_LOGO_URL = "/wcd-plate-logo.png";
-
-function loadCanvasImage(url) {
-  return new Promise((resolve, reject) => {
-    const image = new Image();
-    image.crossOrigin = "anonymous";
-
-    image.onload = () => resolve(image);
-    image.onerror = () =>
-      reject(new Error(`Image load failed: ${url}`));
-
-    image.src = url;
-  });
+function EditCarModal({car,bidCount,onClose,onSaved}) {
+ const [busy,setBusy]=useState(false);
+ return <AdminDialog title="Edit vehicle" wide busy={busy} onClose={onClose}><VehicleEditor key={car.id} car={car} bidCount={bidCount} onSaved={onSaved} onCancel={onClose} onBusyChange={setBusy}/></AdminDialog>;
 }
-
-async function createWCDStickerFile(
-  imageUrl,
-  position,
-  stickerWidth
-) {
-  const [photo, logo] = await Promise.all([
-    loadCanvasImage(imageUrl),
-    loadCanvasImage(WCD_LOGO_URL)
-  ]);
-
-  const canvas = document.createElement("canvas");
-  canvas.width = photo.naturalWidth;
-  canvas.height = photo.naturalHeight;
-
-  const ctx = canvas.getContext("2d");
-  if (!ctx) throw new Error("Canvas unavailable.");
-
-  ctx.drawImage(photo, 0, 0);
-
-  // White branded plate, ratio 2.5:1
-  const width = canvas.width * stickerWidth;
-  const height = width / 2.5;
-
-  const centerX = position.x * canvas.width;
-  const centerY = position.y * canvas.height;
-
-  const x = Math.max(
-    0,
-    Math.min(canvas.width - width, centerX - width / 2)
-  );
-
-  const y = Math.max(
-    0,
-    Math.min(canvas.height - height, centerY - height / 2)
-  );
-
-  ctx.save();
-
-  ctx.fillStyle = "#ffffff";
-  ctx.fillRect(x, y, width, height);
-
-  ctx.strokeStyle = "#16449a";
-  ctx.lineWidth = Math.max(2, width * 0.012);
-  ctx.strokeRect(x, y, width, height);
-
-  // Original logo, without distortion
-  const padding = width * 0.025;
-  const availableWidth = width - padding * 2;
-  const availableHeight = height - padding * 2;
-
-  const scale = Math.min(
-    availableWidth / logo.naturalWidth,
-    availableHeight / logo.naturalHeight
-  );
-
-  const logoWidth = logo.naturalWidth * scale;
-  const logoHeight = logo.naturalHeight * scale;
-
-  ctx.drawImage(
-    logo,
-    x + (width - logoWidth) / 2,
-    y + (height - logoHeight) / 2,
-    logoWidth,
-    logoHeight
-  );
-
-  ctx.restore();
-
-  const blob = await new Promise((resolve, reject) => {
-    canvas.toBlob(
-      (result) =>
-        result
-          ? resolve(result)
-          : reject(new Error("Sticker export failed.")),
-      "image/jpeg",
-      0.95
-    );
-  });
-
-  return new File(
-    [blob],
-    `wcd-sticker-${Date.now()}.jpg`,
-    { type: "image/jpeg" }
-  );
-}
-
-// ============================================================
-// ADVANCED EDIT CAR + WCD PHOTO STICKER
-// ============================================================
-
-function EditCarModal({ car, onClose, onSaved }) {
-  const originalImages = carImages(car);
-
-  const [form, setForm] = useState({
-    vehicle_title: car.vehicle_title || "",
-    variant: car.variant || "",
-    mileage_km: car.mileage_km ?? "",
-    location: car.location || "",
-    base_price_buyer: car.base_price_buyer ?? "",
-    base_price_dealer: car.base_price_dealer ?? "",
-    buy_now_price: car.buy_now_price ?? "",
-    starting_bid: car.starting_bid ?? "",
-    reserve_price: car.reserve_price ?? "",
-    listing_type: car.listing_type || "auction",
-    access_type: car.access_type || "all",
-    visibility: car.visibility || "visible",
-    auction_end: localDate(car.auction_end),
-    c2c_enabled: car.c2c_enabled === true
-  });
-
-  const [images, setImages] = useState(originalImages);
-  const [selectedImage, setSelectedImage] = useState(0);
-
-  const [position, setPosition] = useState({
-    x: 0.5,
-    y: 0.72
-  });
-
-  const [stickerWidth, setStickerWidth] = useState(0.24);
-
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  const [message, setMessage] = useState("");
-
-  const selectedUrl = images[selectedImage] || null;
-
-  const canUseC2C =
-    car.channel !== "dealer" &&
-    form.listing_type === "buy_now_only" &&
-    form.access_type === "all";
-
-  function change(name, value) {
-    setForm((previous) => ({
-      ...previous,
-      [name]: value
-    }));
-  }
-
-  function placeSticker(event) {
-    const image = event.currentTarget;
-    const rect = image.getBoundingClientRect();
-
-    // Image is rendered without object-fit cropping.
-    const x = (event.clientX - rect.left) / rect.width;
-    const y = (event.clientY - rect.top) / rect.height;
-
-    setPosition({
-      x: Math.max(
-        stickerWidth / 2,
-        Math.min(1 - stickerWidth / 2, x)
-      ),
-      y: Math.max(0.05, Math.min(0.95, y))
-    });
-  }
-
-  async function addPhotos(event) {
-    const files = Array.from(event.target.files || []);
-
-    if (!files.length) return;
-
-    setBusy(true);
-    setError("");
-    setMessage("");
-
-    try {
-      const urls = [];
-
-      for (const file of files) {
-        if (!file.type.startsWith("image/")) {
-          throw new Error("Only image files are allowed.");
-        }
-
-        if (file.size > 15 * 1024 * 1024) {
-          throw new Error("Each photo must be under 15 MB.");
-        }
-
-        const url = await uploadCarFile(
-          file,
-          `cars/${car.id}/photos`
-        );
-
-        urls.push(url);
-      }
-
-      setImages((previous) => [...previous, ...urls]);
-
-      setMessage(
-        "Photos uploaded. Save Changes dabane par listing update hogi."
-      );
-    } catch (err) {
-      setError(err.message || "Photo upload failed.");
-    } finally {
-      setBusy(false);
-      event.target.value = "";
-    }
-  }
-
-  async function applySticker() {
-    if (!selectedUrl) return;
-
-    setBusy(true);
-    setError("");
-    setMessage("");
-
-    try {
-      const file = await createWCDStickerFile(
-        selectedUrl,
-        position,
-        stickerWidth
-      );
-
-      const url = await uploadCarFile(
-        file,
-        `cars/${car.id}/wcd-stickers`
-      );
-
-      setImages((previous) =>
-        previous.map((item, index) =>
-          index === selectedImage ? url : item
-        )
-      );
-
-      setMessage(
-        "WCD sticker applied. Save Changes dabakar publish karo."
-      );
-    } catch (err) {
-      setError(err.message || "Sticker failed.");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  function removeImage(index) {
-    setImages((previous) =>
-      previous.filter((_, i) => i !== index)
-    );
-
-    setSelectedImage(0);
-  }
-
-  function restorePhotos() {
-    setImages(originalImages);
-    setSelectedImage(0);
-    setMessage("Original listing photos restored in editor.");
-  }
-
-  function numberOrNull(value) {
-    if (value === "" || value === null) return null;
-
-    const number = Number(value);
-
-    if (!Number.isFinite(number) || number < 0) {
-      throw new Error("Enter valid non-negative numbers.");
-    }
-
-    return number;
-  }
-
-  
-async function save() {
-  setError("");
-  setMessage("");
-
-  try {
-    if (!form.vehicle_title.trim()) {
-      throw new Error("Car title required.");
-    }
-
-    if (!images.length) {
-      throw new Error("At least one photo required.");
-    }
-
-    const payload = {};
-
-    const textFields = [
-      "vehicle_title",
-      "variant",
-      "location"
-    ];
-
-    for (const key of textFields) {
-      const next = String(form[key] ?? "").trim();
-      const old = String(car[key] ?? "").trim();
-
-      if (next !== old) {
-        payload[key] = next;
-      }
-    }
-
-    const numericFields = [
-      "mileage_km",
-      "base_price_buyer",
-      "base_price_dealer",
-      "buy_now_price",
-      "starting_bid",
-      "reserve_price"
-    ];
-
-    for (const key of numericFields) {
-      const next = numberOrNull(form[key]);
-      const old = car[key] == null
-        ? null
-        : Number(car[key]);
-
-      if (next !== old) {
-        payload[key] = next;
-      }
-    }
-
-    for (const key of [
-      "listing_type",
-      "access_type",
-      "visibility"
-    ]) {
-      if (form[key] !== car[key]) {
-        payload[key] = form[key];
-      }
-    }
-
-    const nextC2C =
-      canUseC2C && form.c2c_enabled === true;
-
-    if (nextC2C !== (car.c2c_enabled === true)) {
-      payload.c2c_enabled = nextC2C;
-    }
-
-    const oldAuctionEnd = car.auction_end
-      ? new Date(car.auction_end).toISOString()
-      : null;
-
-    const nextAuctionEnd =
-      form.listing_type === "auction" && form.auction_end
-        ? new Date(form.auction_end).toISOString()
-        : null;
-
-    if (nextAuctionEnd !== oldAuctionEnd) {
-      payload.auction_end = nextAuctionEnd;
-    }
-
-    const oldImages = carImages(car);
-
-    if (
-      JSON.stringify(images) !==
-      JSON.stringify(oldImages)
-    ) {
-      payload.images = [...images];
-      payload.thumbnail_url = images[0];
-    }
-
-    if (Object.keys(payload).length === 0) {
-      setMessage("No changes to save.");
-      return;
-    }
-
-    const auctionSensitiveFields = [
-      "listing_type",
-      "access_type",
-      "starting_bid",
-      "reserve_price",
-      "auction_end"
-    ];
-
-    if (
-      car.status === "live" &&
-      car.listing_type === "auction" &&
-      auctionSensitiveFields.some(
-        (key) => Object.hasOwn(payload, key)
-      )
-    ) {
-      throw new Error(
-        "Live auction settings cannot be changed from this editor."
-      );
-    }
-
-    setBusy(true);
-
-    const updated = await updateCar(car.id, payload);
-
-    if (!updated || updated.id !== car.id) {
-      throw new Error(
-        "Could not verify saved car. Refresh Inventory."
-      );
-    }
-
-    if (payload.images) {
-      if (
-        JSON.stringify(updated.images) !==
-          JSON.stringify(payload.images) ||
-        updated.thumbnail_url !== payload.thumbnail_url
-      ) {
-        throw new Error(
-          "Photo update could not be verified."
-        );
-      }
-    }
-
-    onSaved(updated);
-  } catch (err) {
-    setError(err.message || "Save failed.");
-  } finally {
-    setBusy(false);
-  }
-}
-
-
-  return (
-    <Modal
-      title={`Edit Car — ${car.vehicle_title || "Untitled"}`}
-      onClose={busy ? undefined : onClose}
-      wide
-    >
-      <div className="space-y-6">
-        <div className="rounded-xl border border-blue-500/20 bg-blue-500/5 p-3 text-xs text-blue-300">
-          Edit published cars, manage photos and apply WCD branding.
-          Existing bids are not modified.
-        </div>
-
-        <section>
-          <h3 className="mb-3 font-semibold text-white">
-            Vehicle Information
-          </h3>
-
-          <div className="grid gap-3 sm:grid-cols-2">
-            {[
-              ["vehicle_title", "Car Title", "text"],
-              ["variant", "Variant", "text"],
-              ["mileage_km", "Mileage (KM)", "number"],
-              ["location", "Location", "text"]
-            ].map(([name, label, type]) => (
-              <label
-                key={name}
-                className="space-y-1 text-xs text-zinc-400"
-              >
-                <span>{label}</span>
-
-                <input
-                  type={type}
-                  min={type === "number" ? 0 : undefined}
-                  className={INPUT}
-                  value={form[name]}
-                  onChange={(event) =>
-                    change(name, event.target.value)
-                  }
-                />
-              </label>
-            ))}
-          </div>
-        </section>
-
-        <section className="border-t border-white/10 pt-5">
-          <h3 className="mb-3 font-semibold text-white">
-            Prices
-          </h3>
-
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {[
-              ["base_price_buyer", "Buyer Base Price"],
-              ["base_price_dealer", "Dealer Base Price"],
-              ["buy_now_price", "Buy Now Price"],
-              ["starting_bid", "Starting Bid"],
-              ["reserve_price", "Reserve Price"]
-            ].map(([name, label]) => (
-              <label
-                key={name}
-                className="space-y-1 text-xs text-zinc-400"
-              >
-                <span>{label}</span>
-
-                <input
-                  type="number"
-                  min="0"
-                  className={INPUT}
-                  value={form[name]}
-                  onChange={(event) =>
-                    change(name, event.target.value)
-                  }
-                />
-              </label>
-            ))}
-          </div>
-        </section>
-
-        <section className="border-t border-white/10 pt-5">
-          <h3 className="mb-3 font-semibold text-white">
-            Listing Settings
-          </h3>
-
-          <div className="grid gap-3 sm:grid-cols-2">
-            <label className="space-y-1 text-xs text-zinc-400">
-              Listing Type
-              <select
-                className={INPUT}
-                value={form.listing_type}
-                onChange={(event) =>
-                  change("listing_type", event.target.value)
-                }
-              >
-                <option value="auction">Auction</option>
-                <option value="buy_now_only">Buy Now</option>
-              </select>
-            </label>
-
-            <label className="space-y-1 text-xs text-zinc-400">
-              Access
-              <select
-                className={INPUT}
-                value={form.access_type}
-                onChange={(event) =>
-                  change("access_type", event.target.value)
-                }
-              >
-                <option value="all">Everyone</option>
-                <option value="dealer_only">Dealers Only</option>
-              </select>
-            </label>
-
-            <label className="space-y-1 text-xs text-zinc-400">
-              Visibility
-              <select
-                className={INPUT}
-                value={form.visibility}
-                onChange={(event) =>
-                  change("visibility", event.target.value)
-                }
-              >
-                <option value="visible">Visible</option>
-                <option value="hidden">Hidden</option>
-              </select>
-            </label>
-
-            {form.listing_type === "auction" && (
-              <label className="space-y-1 text-xs text-zinc-400">
-                Auction End
-                <input
-                  type="datetime-local"
-                  className={INPUT}
-                  value={form.auction_end}
-                  onChange={(event) =>
-                    change("auction_end", event.target.value)
-                  }
-                />
-              </label>
-            )}
-          </div>
-
-          <label className="mt-4 flex items-center gap-3 text-sm text-zinc-300">
-            <input
-              type="checkbox"
-              disabled={!canUseC2C}
-              checked={
-                canUseC2C && form.c2c_enabled === true
-              }
-              onChange={(event) =>
-                change("c2c_enabled", event.target.checked)
-              }
-            />
-
-            Enable C2C Deal
-          </label>
-
-          {!canUseC2C && (
-            <p className="mt-1 text-xs text-zinc-500">
-              C2C is available only for public Buy Now cars,
-              not dealer-channel listings.
-            </p>
-          )}
-        </section>
-
-        <section className="border-t border-white/10 pt-5">
-          <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <h3 className="font-semibold text-white">
-                WCD Photo Studio
-              </h3>
-
-              <p className="mt-1 text-xs text-zinc-400">
-                Select photo, click number plate, apply sticker.
-              </p>
-            </div>
-
-            <label
-              className={`${BUTTON} cursor-pointer bg-blue-600 text-white`}
-            >
-              <Upload size={14} />
-              Add Photos
-
-              <input
-                type="file"
-                accept="image/*"
-                multiple
-                disabled={busy}
-                className="hidden"
-                onChange={addPhotos}
-              />
-            </label>
-          </div>
-
-         
-{selectedUrl ? (
-  <div className="flex justify-center rounded-xl border border-white/10 bg-black/40 p-2">
-    <div className="relative inline-block max-w-full">
-      <img
-        src={selectedUrl}
-        alt="Selected car"
-        onClick={placeSticker}
-        className="block max-h-[440px] max-w-full cursor-crosshair rounded-lg"
-      />
-
-      <div
-        className="pointer-events-none absolute flex items-center justify-center overflow-hidden border-2 border-blue-800 bg-white shadow-xl"
-        style={{
-          left: `${position.x * 100}%`,
-          top: `${position.y * 100}%`,
-          width: `${stickerWidth * 100}%`,
-          aspectRatio: "2.5 / 1",
-          transform: "translate(-50%, -50%)"
-        }}
-      >
-        <img
-          src={WCD_LOGO_URL}
-          alt="WellCarDeals Logo Sticker"
-          className="h-full w-full object-contain"
-        />
-      </div>
-    </div>
-  </div>
-) : (
-  <div className="flex h-48 items-center justify-center rounded-xl bg-white/5 text-zinc-500">
-    <ImageOff size={28} />
-  </div>
-)}
-
-          <div className="mt-4 space-y-3">
-            <p className="text-xs text-zinc-400">
-              Number plate par click karo. White-blue WCD
-              sticker us position par apply hoga.
-            </p>
-
-            <label className="block space-y-2 text-xs text-zinc-400">
-              Sticker Size: {Math.round(stickerWidth * 100)}%
-
-              <input
-                type="range"
-                min="0.08"
-                max="0.6"
-                step="0.01"
-                className="w-full"
-                value={stickerWidth}
-                onChange={(event) =>
-                  setStickerWidth(Number(event.target.value))
-                }
-              />
-            </label>
-
-            <div className="flex flex-wrap gap-2">
-              <button
-                type="button"
-                disabled={busy || !selectedUrl}
-                onClick={applySticker}
-                className={`${BUTTON} bg-indigo-600 text-white`}
-              >
-                <Sticker size={14} />
-                Apply WCD Sticker
-              </button>
-
-              <button
-                type="button"
-                disabled={busy}
-                onClick={restorePhotos}
-                className={`${BUTTON} border border-white/10 text-zinc-300`}
-              >
-                <RotateCcw size={14} />
-                Restore Original Listing Photos
-              </button>
-            </div>
-          </div>
-
-          <div className="mt-4 grid grid-cols-3 gap-3 sm:grid-cols-5 lg:grid-cols-6">
-            {images.map((url, index) => (
-              <div key={`${url}-${index}`} className="space-y-1">
-                <button
-                  type="button"
-                  onClick={() => setSelectedImage(index)}
-                  className={`w-full overflow-hidden rounded-lg border-2 ${
-                    selectedImage === index
-                      ? "border-blue-500"
-                      : "border-white/10"
-                  }`}
-                >
-                  <img
-                    src={url}
-                    alt={`Photo ${index + 1}`}
-                    className="h-20 w-full object-cover"
-                  />
-                </button>
-
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={() => removeImage(index)}
-                  className="flex w-full items-center justify-center gap-1 text-xs text-red-400"
-                >
-                  <Trash2 size={11} />
-                  Remove
-                </button>
-              </div>
-            ))}
-          </div>
-        </section>
-
-        {error && (
-          <div className="rounded-xl bg-red-500/10 p-3 text-sm text-red-400">
-            {error}
-          </div>
-        )}
-
-        {message && (
-          <div className="rounded-xl bg-emerald-500/10 p-3 text-sm text-emerald-400">
-            {message}
-          </div>
-        )}
-
-        <div className="sticky bottom-0 flex justify-end gap-3 border-t border-white/10 bg-zinc-900 py-4">
-          <button
-            type="button"
-            disabled={busy}
-            onClick={onClose}
-            className={`${BUTTON} border border-white/10 text-zinc-300`}
-          >
-            Cancel
-          </button>
-
-          <button
-            type="button"
-            disabled={busy}
-            onClick={save}
-            className={`${BUTTON} bg-emerald-600 px-5 text-white`}
-          >
-            {busy ? (
-              <Loader2 size={15} className="animate-spin" />
-            ) : (
-              <Save size={15} />
-            )}
-
-            {busy ? "Saving..." : "Save Changes"}
-          </button>
-        </div>
-      </div>
-    </Modal>
-  );
-}
-
-// ============================================================
-// PRICE EDITOR
-// ============================================================
 
 function PriceModal({ car, bidCount, saving, onClose, onSave }) {
   const [prices, setPrices] = useState({
@@ -1168,7 +405,10 @@ export default function InventoryPage() {
   const [savingId, setSavingId] = useState(null);
   const [notice, setNotice] = useState(null);
 
-  const [search, setSearch] = useState("");
+  const [params]=useSearchParams();
+  const [search, setSearch] = useState(params.get("q")||"");
+  const [view,setView]=useState("table");
+  const [channelFilter,setChannelFilter]=useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
 
   const [sortField, setSortField] = useState("created_at");
@@ -1707,29 +947,7 @@ export default function InventoryPage() {
       car.auction_end || ""
     ]);
 
-    const csv = [headers, ...rows]
-      .map((row) =>
-        row
-          .map(
-            (value) =>
-              `"${String(value ?? "").replace(/"/g, '""')}"`
-          )
-          .join(",")
-      )
-      .join("\n");
-
-    const blob = new Blob([csv], {
-      type: "text/csv;charset=utf-8;"
-    });
-
-    const url = URL.createObjectURL(blob);
-
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = "wellcardeals-inventory.csv";
-    anchor.click();
-
-    URL.revokeObjectURL(url);
+    downloadCSV("inventory",headers,rows);
   }
 
   // ----------------------------------------------------------
@@ -1741,6 +959,7 @@ export default function InventoryPage() {
       {editCar && (
         <EditCarModal
           car={editCar}
+          bidCount={bidCounts[editCar.id] || 0}
           onClose={() => setEditCar(null)}
           onSaved={onEditSaved}
         />
@@ -1778,7 +997,8 @@ export default function InventoryPage() {
           </p>
         </div>
 
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
+          {canEdit && <Link to="/admin/add-car" className="aw-button aw-primary">Add vehicle</Link>}
           <button
             type="button"
             onClick={load}
@@ -1905,6 +1125,7 @@ export default function InventoryPage() {
         ))}
       </div>
 
+      <div className="aw-inventory-view"><select aria-label="Sales channel" value={channelFilter} onChange={e=>setChannelFilter(e.target.value)}><option value="all">All channels</option><option value="direct">Direct sale</option><option value="auction">Dealer auction</option></select><div className="aw-segmented"><button type="button" aria-pressed={view==="table"} onClick={()=>setView("table")}>Table</button><button type="button" aria-pressed={view==="cards"} onClick={()=>setView("cards")}>Cards & actions</button></div></div>
       {canEdit && filtered.length > 0 && (
         <div className="flex flex-wrap items-center gap-3 rounded-xl border border-white/10 bg-white/5 p-3">
           <button
@@ -1976,8 +1197,8 @@ export default function InventoryPage() {
           No cars found.
         </p>
       ) : (
-        <div className="space-y-4">
-          {filtered.map((car) => {
+        <><div className="aw-table-scroll" hidden={view!=="table"}><table className="aw-data-table"><thead><tr><th>Vehicle</th><th>Channel</th><th>Price</th><th>Status</th><th>Inspection</th><th>Actions</th></tr></thead><tbody>{filtered.filter(c=>channelFilter==="all" || (channelFilter==="direct"?c.listing_type==="buy_now_only":c.listing_type==="auction")).map(car=><tr key={car.id}><td><div className="aw-vehicle-cell">{(car.thumbnail_url||carImages(car)[0])&&<img src={car.thumbnail_url||carImages(car)[0]} alt=""/>}<div><strong>{car.vehicle_title||"Untitled"}</strong><small>{car.year||"Year not set"} · {car.location||"Location not set"}</small></div></div></td><td><span className="aw-tag">{car.listing_type==="buy_now_only"?"Direct sale":"Dealer auction"}</span></td><td className="aw-money">{money(car.listing_type==="buy_now_only"?car.buy_now_price:car.base_price_dealer??car.starting_bid)}</td><td><span className={"aw-status aw-status-"+car.status}>{car.status}{car.visibility==="hidden"?" · Hidden":""}</span></td><td>{inspectionStatus(car)||"Not checked"}</td><td><div className="aw-row-actions">{canEdit&&car.status!=="sold"&&<button type="button" className="aw-button" onClick={()=>setEditCar(car)}><Pencil size={14}/>Edit</button>}<button type="button" className="aw-text-button" onClick={()=>{setView("cards");setSearch(car.vehicle_title||car.id);}}>Manage details</button></div></td></tr>)}</tbody></table></div><div className="space-y-4" hidden={view!=="cards"}>
+          {filtered.filter(c=>channelFilter==="all" || (channelFilter==="direct"?c.listing_type==="buy_now_only":c.listing_type==="auction")).map((car) => {
             const images = carImages(car);
 
             const cover =
@@ -2224,7 +1445,7 @@ export default function InventoryPage() {
                   </div>
 
                   <div className="flex flex-wrap content-start gap-2 xl:max-w-[470px] xl:justify-end">
-                    {canEdit && (
+                    {canEdit && car.status !== "sold" && (
                       <button
                         type="button"
                         disabled={saving}
@@ -2236,7 +1457,7 @@ export default function InventoryPage() {
                       </button>
                     )}
 
-                    {canEdit && (
+                    {canEdit && car.status !== "sold" && (
                       <button
                         type="button"
                         disabled={saving}
@@ -2567,7 +1788,7 @@ export default function InventoryPage() {
               </div>
             );
           })}
-        </div>
+        </div></>
       )}
     </div>
   );

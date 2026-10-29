@@ -1,3 +1,4 @@
+import AdminRecordCollection from "../components/AdminRecordCollection";
 import { readPages } from "../../lib/readPages";
 import { useStaffAccess } from "../hooks/useStaffAccess";
 import React, { useEffect, useMemo, useState } from "react";
@@ -144,7 +145,7 @@ export default function ManageAuctionRequestsPage() {
       ) : filtered.length === 0 ? (
         <p className="text-sm text-zinc-500">No requests match.</p>
       ) : (
-        <div className="space-y-3">
+        <AdminRecordCollection rows={filtered} kind="sell">
           {filtered.map((r) => (
             <div
               key={r.id}
@@ -223,7 +224,7 @@ export default function ManageAuctionRequestsPage() {
               </div>
             </div>
           ))}
-        </div>
+        </AdminRecordCollection>
       )}
     </div>
   );

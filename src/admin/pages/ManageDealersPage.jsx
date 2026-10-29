@@ -1,3 +1,6 @@
+import AdminRecordCollection from "../components/AdminRecordCollection";
+import AdminDialog from "../components/AdminDialog";
+import CredentialField from "../components/CredentialField";
 import { readPages } from "../../lib/readPages";
 import { resolveProfileMedia } from "../../lib/privateMedia";
 import React, { useEffect, useMemo, useState } from "react";
@@ -5,6 +8,7 @@ import { supabase } from "../../lib/supabaseClient";
 import { CheckCircle2, XCircle, Clock, ShieldBan, Copy, RefreshCw, ShieldCheck, Eye, KeyRound, X, Search } from "lucide-react";
 import { approveDealerManualCode, regenerateDealerManualCode, resetDealerPassword } from "../../auth/authApi";
 import { useAuth } from "../../auth/AuthContext";
+import { useSearchParams } from "react-router-dom";
 
 const STATUS_STYLES = {
   pending: "bg-amber-500/15 text-amber-400",
@@ -14,6 +18,8 @@ const STATUS_STYLES = {
 };
 
 export default function ManageDealersPage() {
+  const [params] = useSearchParams();
+  const initialSearch = params.get("dealer") || params.get("q") || "";
   const { role } = useAuth();
   const readOnly = !["admin", "manager"].includes(role);
   const [dealers, setDealers] = useState([]);
@@ -23,8 +29,8 @@ export default function ManageDealersPage() {
   const [sendingId, setSendingId] = useState(null);
   const [notice, setNotice] = useState(null); // { id, text }
   const [visibleCodes, setVisibleCodes] = useState({}); // { [dealerId]: code } — shown after generating, for manual send
-  const [filter, setFilter] = useState("pending");
-  const [search, setSearch] = useState("");
+  const [filter, setFilter] = useState("all");
+  const [search, setSearch] = useState(initialSearch);
   const [resettingId, setResettingId] = useState(null);
   const [newCredential, setNewCredential] = useState(null); // { dealer, password } — shown in a modal right after a reset
 
@@ -123,7 +129,9 @@ export default function ManageDealersPage() {
     setNotice(null);
     try {
       const result = await resetDealerPassword(dealer.id);
+      if (!result?.password || (dealer.dealer_id && result.dealerId !== dealer.dealer_id)) throw new Error("Password receipt could not be verified. Review the account before retrying.");
       setNewCredential({ dealer, password: result.password });
+      window.dispatchEvent(new Event("wcd-admin-refresh"));
     } catch (err) {
       setNotice({ id: dealer.id, text: err.message || "Couldn't reset password.", isError: true });
     } finally {
@@ -131,13 +139,6 @@ export default function ManageDealersPage() {
     }
   }
 
-  async function copyPassword(password) {
-    try {
-      await navigator.clipboard.writeText(password);
-    } catch {
-      // clipboard API unavailable — password is still visible to copy by hand
-    }
-  }
 
   const counts = useMemo(() => {
     const c = { pending: 0, approved: 0, rejected: 0, suspended: 0, all: dealers.length };
@@ -154,6 +155,8 @@ export default function ManageDealersPage() {
       list = list.filter(
         (d) =>
           (d.business_name || "").toLowerCase().includes(q) ||
+          (d.id || "").toLowerCase().includes(q) ||
+          (d.dealer_id || "").toLowerCase().includes(q) ||
           (d.full_name || "").toLowerCase().includes(q) ||
           (d.email || "").toLowerCase().includes(q) ||
           (d.phone || "").toLowerCase().includes(q)
@@ -168,7 +171,7 @@ export default function ManageDealersPage() {
       <p className="text-sm text-zinc-400 mb-6">
         {readOnly
           ? "Read-only view of dealer sign-ups and their approval status."
-          : "Approve or reject dealer sign-ups. Only approved dealers can see dealer pricing and dealer-only inventory."}
+          : "Manage dealer login IDs and account access. Review new sign-ups in Dealer Applications. Existing passwords cannot be retrieved; a reset issues a new one."}
       </p>
 
       <div className="flex flex-col sm:flex-row gap-3 mb-5 sm:items-center sm:justify-between">
@@ -204,7 +207,7 @@ export default function ManageDealersPage() {
       ) : filtered.length === 0 ? (
         <p className="text-sm text-zinc-500">No dealers match.</p>
       ) : (
-        <div className="space-y-3">
+        <AdminRecordCollection rows={filtered} kind="dealer">
           {filtered.map((d) => (
             <div
               key={d.id}
@@ -219,6 +222,7 @@ export default function ManageDealersPage() {
                     {d.status}
                   </span>
                 </div>
+                <p className="text-xs text-blue-400 mt-1">Login ID: <code>{d.dealer_id || "Not issued"}</code></p>
                 <p className="text-sm text-zinc-400 mt-0.5">{d.email}</p>
                 {d.phone && <p className="text-xs text-zinc-500 mt-0.5">{d.phone}</p>}
                 <p className="text-xs text-zinc-600 mt-1">
@@ -267,7 +271,7 @@ export default function ManageDealersPage() {
                 </div>
               ) : (
                 <div className="flex items-center gap-2 shrink-0 flex-wrap">
-                  {d.status !== "approved" && (
+                  {d.status === "pending" && (
                     <button
                       disabled={updatingId === d.id || sendingId === d.id}
                       onClick={() => approveWithCode(d.id)}
@@ -294,7 +298,7 @@ export default function ManageDealersPage() {
                       <KeyRound size={14} /> {resettingId === d.id ? "Resetting…" : "Reset Password"}
                     </button>
                   )}
-                  {d.status !== "rejected" && (
+                  {d.status === "pending" && (
                     <button
                       disabled={updatingId === d.id}
                       onClick={() => setStatus(d.id, "rejected")}
@@ -303,6 +307,7 @@ export default function ManageDealersPage() {
                       <XCircle size={14} /> Reject
                     </button>
                   )}
+                  {["suspended","rejected"].includes(d.status) && <button disabled={updatingId===d.id} type="button" className="aw-button" onClick={()=>setStatus(d.id,"approved")}>Restore access</button>}
                   {d.status === "approved" && (
                     <button
                       disabled={updatingId === d.id}
@@ -316,56 +321,11 @@ export default function ManageDealersPage() {
               )}
             </div>
           ))}
-        </div>
+        </AdminRecordCollection>
       )}
 
-      {newCredential && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm px-4"
-          onClick={() => setNewCredential(null)}
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            className="w-full max-w-md rounded-2xl border border-blue-500/20 bg-[#0B1120] p-6 relative"
-          >
-            <button
-              onClick={() => setNewCredential(null)}
-              className="absolute top-4 right-4 text-zinc-500 hover:text-white transition"
-              aria-label="Close"
-            >
-              <X size={18} />
-            </button>
+      {newCredential && <AdminDialog title="New dealer password issued" onClose={()=>setNewCredential(null)}><p className="aw-muted">{newCredential.dealer.business_name || newCredential.dealer.full_name} — the previous password has been replaced. Copy the new credentials now; closing this window clears them.</p><CredentialField label="Dealer login ID" value={newCredential.dealer.dealer_id}/><CredentialField label="New password" value={newCredential.password} secret/><p className="aw-muted">Share the credentials with the dealer manually. Existing passwords are never stored in this panel.</p><button type="button" className="aw-button aw-primary" onClick={()=>setNewCredential(null)}>Done</button></AdminDialog>}
 
-            <div className="flex items-center gap-2 mb-1">
-              <KeyRound size={18} className="text-blue-400" />
-              <h2 className="text-lg font-semibold text-white">New Password Issued</h2>
-            </div>
-            <p className="text-sm text-zinc-400 mb-5">
-              {newCredential.dealer.business_name || newCredential.dealer.full_name} — their old
-              password no longer works. Share this with them yourself; it won't be shown again.
-            </p>
-
-            <div>
-              <p className="text-xs text-zinc-500 mb-1">New Password</p>
-              <div className="flex items-center gap-2">
-                <code className="flex-1 text-sm font-mono bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-blue-400">
-                  {newCredential.password}
-                </code>
-                <button
-                  onClick={() => copyPassword(newCredential.password)}
-                  className="text-xs font-semibold border border-white/10 hover:bg-white/5 text-zinc-300 px-3 py-2 rounded-lg transition"
-                >
-                  Copy
-                </button>
-              </div>
-            </div>
-
-            <p className="text-[11px] text-zinc-500 text-center mt-5">
-              Only admins and managers can issue dealer passwords — dealers can't set their own.
-            </p>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

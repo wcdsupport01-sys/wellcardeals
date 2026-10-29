@@ -1,3 +1,4 @@
+import AdminRecordCollection from "../components/AdminRecordCollection";
 import { readPages } from "../../lib/readPages";
 import { useStaffAccess } from "../hooks/useStaffAccess";
 import React, { useEffect, useMemo, useState } from "react";
@@ -139,7 +140,7 @@ export default function ManageC2CDealsPage() {
       ) : filtered.length === 0 ? (
         <p className="text-sm text-zinc-500">No C2C deal requests match.</p>
       ) : (
-        <div className="space-y-3">
+        <AdminRecordCollection rows={filtered} kind="c2c">
           {filtered.map((r) => (
             <div
               key={r.id}
@@ -206,7 +207,7 @@ export default function ManageC2CDealsPage() {
               </div>
             </div>
           ))}
-        </div>
+        </AdminRecordCollection>
       )}
     </div>
   );

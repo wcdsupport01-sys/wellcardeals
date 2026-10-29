@@ -1,5 +1,9 @@
+import CredentialField from "../components/CredentialField";
+import AdminDialog from "../components/AdminDialog";
+import { exportCSV } from "../lib/csv";
 import { backendCommand } from "../../lib/backendCommands";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import {
   Building2,
   User,
@@ -36,7 +40,7 @@ function formatDate(value) {
 
 export default function DealerApplicationsPage() {
   const { role } = useAuth();
-  const readOnly = role === "team_lead";
+  const readOnly = !["admin", "manager"].includes(role);
 
   const [applications, setApplications] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -46,6 +50,21 @@ export default function DealerApplicationsPage() {
   const [viewing, setViewing] = useState(null); // application object, for the details modal
   const [provisioning, setProvisioning] = useState(null);
   const [credentials, setCredentials] = useState(null); // { dealerId, tempPassword, businessName } after approving
+  const [actionError, setActionError] = useState("");
+  const [search,setSearch]=useState("");
+  const actionLock = useRef(false);
+
+  const manageAccountUrl = (application) => {
+    const identifier = application.auth_user_id || application.dealer_id;
+    return identifier ? `/admin/dealers?dealer=${encodeURIComponent(identifier)}` : `/admin/dealers?q=${encodeURIComponent(application.email || "")}`;
+  };
+
+  function applyReceipt(updated) {
+    const fields = { status: updated.status, dealer_id: updated.dealer_id, auth_user_id: updated.auth_user_id, updated_at: updated.updated_at };
+    setApplications((prev) => filter !== "all" && updated.status !== filter ? prev.filter((application) => application.id !== updated.id) : prev.map((application) => application.id === updated.id ? { ...application, ...fields } : application));
+    window.dispatchEvent(new Event("wcd-admin-refresh"));
+    setViewing((previous) => previous?.id === updated.id ? { ...previous, ...fields } : previous);
+  }
 
   async function load(status = filter) {
     setLoading(true);
@@ -66,19 +85,15 @@ export default function DealerApplicationsPage() {
   }, [filter]);
 
   async function handleApprove(id) {
-    if (readOnly) return;
+    if (readOnly || actionLock.current) return null;
+    const application = applications.find((item) => item.id === id);
+    if (!application || application.status !== "pending") return null;
+    actionLock.current = true;
+    setActionError("");
     setUpdatingId(id);
     try {
       const updated = await approveDealerApplication(id);
-      // Reflect the change immediately; if we're viewing "pending" only,
-      // drop it from the list instead of re-fetching.
-      setApplications((prev) =>
-        filter === "pending"
-          ? prev.filter((a) => a.id !== id)
-          : prev.map((a) =>
-              a.id === id ? { ...a, status: "approved", dealer_id: updated?.dealer_id } : a
-            )
-      );
+      applyReceipt(updated);
       // Email isn't wired up yet — surface the credentials here so the
       // admin can copy/share them manually.
       if (updated?.tempPassword) {
@@ -92,25 +107,30 @@ export default function DealerApplicationsPage() {
       return updated;
     } catch (err) {
       if (err.provisioningUserId) setProvisioning({ application_id:id, auth_user_id:err.provisioningUserId });
-      alert(`Couldn't approve: ${err.message}`);
+      setActionError(`Couldn't approve: ${err.message}`);
+      return null;
     } finally {
+      actionLock.current = false;
       setUpdatingId(null);
     }
   }
 
   async function handleReject(id) {
-    if (readOnly) return;
+    if (readOnly || actionLock.current) return null;
+    const application = applications.find((item) => item.id === id);
+    if (!application || application.status !== "pending") return null;
+    actionLock.current = true;
+    setActionError("");
     setUpdatingId(id);
     try {
-      await rejectDealerApplication(id);
-      setApplications((prev) =>
-        filter === "pending"
-          ? prev.filter((a) => a.id !== id)
-          : prev.map((a) => (a.id === id ? { ...a, status: "rejected" } : a))
-      );
+      const updated = await rejectDealerApplication(id);
+      applyReceipt(updated);
+      return updated;
     } catch (err) {
-      alert(`Couldn't reject: ${err.message}`);
+      setActionError(`Couldn't reject: ${err.message}`);
+      return null;
     } finally {
+      actionLock.current = false;
       setUpdatingId(null);
     }
   }
@@ -130,10 +150,12 @@ export default function DealerApplicationsPage() {
       <h1 className="text-2xl font-semibold text-white mb-1">Dealer Applications</h1>
       {provisioning && <div role="alert" className="my-4 border border-amber-500 p-4 text-amber-200">This application's account setup needs confirmation. <button disabled={Boolean(updatingId)} onClick={reconcile} className="underline">Finish account setup</button></div>}
       <p className="text-sm text-zinc-400 mb-6">
-        Review new dealer sign-up applications. Approving or rejecting here only updates the
-        application status — no email is sent and no dealer login/password is created yet.
+        Review pending dealer applications. Approval creates and links the dealer login; credentials
+        are shown once for staff to share manually. Manage approved dealers' access from Manage Dealers.
       </p>
+      {actionError && !viewing && <div role="alert" className="mb-5 rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-300">{actionError} <button type="button" onClick={() => { setActionError(""); load(); }} className="underline ml-2">Reload applications</button></div>}
 
+      <div className="aw-list-tools"><label><span className="sr-only">Search dealer applications</span><input aria-label="Search dealer applications" placeholder="Search business, email or dealer…" value={search} onChange={e=>setSearch(e.target.value)}/></label><button type="button" className="aw-button" onClick={()=>exportCSV("dealer-applications",["Application","Business","Contact","Email","Status","Dealer ID"],applications.map(a=>[a.id,a.business_name,a.dealer_name,a.email,a.status,a.dealer_id]))}>Export current list</button></div>
       <div className="flex gap-2 mb-5">
         {["pending", "approved", "rejected", "all"].map((f) => (
           <button
@@ -158,7 +180,7 @@ export default function DealerApplicationsPage() {
         </p>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-          {applications.map((app) => (
+          {applications.filter(a=>[a.business_name,a.dealer_name,a.email,a.dealer_id].some(v=>String(v||"").toLowerCase().includes(search.toLowerCase()))).map((app) => (
             <div
               key={app.id}
               className="rounded-2xl border border-white/10 bg-white/[0.02] p-5 flex flex-col gap-3"
@@ -204,16 +226,16 @@ export default function DealerApplicationsPage() {
 
               <div className="flex items-center gap-2 mt-1 pt-3 border-t border-white/10">
                 <button
-                  onClick={() => setViewing(app)}
+                  onClick={() => { setActionError(""); setViewing(app); }}
                   className="flex items-center gap-1.5 text-xs font-semibold border border-white/10 hover:bg-white/5 text-zinc-300 px-3 py-2 rounded-lg transition"
                 >
                   <Eye size={14} /> View Details
                 </button>
 
-                {!readOnly && (
+                {!readOnly && app.status === "pending" && (
                   <>
                     <button
-                      disabled={updatingId === app.id || app.status === "approved"}
+                      disabled={Boolean(updatingId)}
                       onClick={() => handleApprove(app.id)}
                       className="flex items-center gap-1.5 text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white px-3 py-2 rounded-lg transition ml-auto"
                     >
@@ -221,7 +243,7 @@ export default function DealerApplicationsPage() {
                       {updatingId === app.id ? "…" : "Approve"}
                     </button>
                     <button
-                      disabled={updatingId === app.id || app.status === "rejected"}
+                      disabled={Boolean(updatingId)}
                       onClick={() => handleReject(app.id)}
                       className="flex items-center gap-1.5 text-xs font-semibold bg-red-600 hover:bg-red-500 disabled:opacity-50 text-white px-3 py-2 rounded-lg transition"
                     >
@@ -230,6 +252,7 @@ export default function DealerApplicationsPage() {
                     </button>
                   </>
                 )}
+                {!readOnly && app.status === "approved" && <Link to={manageAccountUrl(app)} className="ml-auto text-xs font-semibold text-blue-300 border border-blue-400/30 rounded-lg px-3 py-2">Manage account</Link>}
               </div>
             </div>
           ))}
@@ -254,6 +277,7 @@ export default function DealerApplicationsPage() {
             </button>
 
             <h2 className="text-lg font-semibold text-white mb-1">{viewing.business_name}</h2>
+            {actionError && <div role="alert" className="my-3 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-300">{actionError} <button type="button" onClick={() => { setViewing(null); setActionError(""); load(); }} className="underline ml-2">Reload applications</button></div>}
             <span
               className={`inline-block text-[11px] font-semibold px-2 py-0.5 rounded-full capitalize mb-4 ${
                 STATUS_STYLES[viewing.status] || "bg-zinc-500/15 text-zinc-400"
@@ -308,117 +332,31 @@ export default function DealerApplicationsPage() {
               </div>
             </dl>
 
-            {!readOnly && (
+            {!readOnly && viewing.status === "pending" && (
               <div className="flex items-center gap-2 mt-6 pt-4 border-t border-white/10">
                 <button
-                  disabled={updatingId === viewing.id || viewing.status === "approved"}
-                  onClick={async () => {
-                    const updated = await handleApprove(viewing.id);
-                    setViewing((v) =>
-                      v ? { ...v, status: "approved", dealer_id: updated?.dealer_id ?? v.dealer_id } : v
-                    );
-                  }}
+                  disabled={Boolean(updatingId)}
+                  onClick={() => handleApprove(viewing.id)}
                   className="flex-1 flex items-center justify-center gap-1.5 text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white px-3 py-2.5 rounded-lg transition"
                 >
                   <CheckCircle2 size={14} /> Approve
                 </button>
                 <button
-                  disabled={updatingId === viewing.id || viewing.status === "rejected"}
-                  onClick={async () => {
-                    await handleReject(viewing.id);
-                    setViewing((v) => (v ? { ...v, status: "rejected" } : v));
-                  }}
+                  disabled={Boolean(updatingId)}
+                  onClick={() => handleReject(viewing.id)}
                   className="flex-1 flex items-center justify-center gap-1.5 text-xs font-semibold bg-red-600 hover:bg-red-500 disabled:opacity-50 text-white px-3 py-2.5 rounded-lg transition"
                 >
                   <XCircle size={14} /> Reject
                 </button>
               </div>
             )}
+            {!readOnly && viewing.status === "approved" && <div className="mt-6 border-t border-white/10 pt-4"><p className="text-xs text-zinc-400 mb-3">This application is approved. Use the dealer account to review or suspend access.</p><Link to={manageAccountUrl(viewing)} className="block rounded-lg border border-blue-400/30 px-3 py-2.5 text-center text-xs font-semibold text-blue-300">Manage account</Link></div>}
           </div>
         </div>
       )}
 
-      {credentials && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm px-4"
-          onClick={() => setCredentials(null)}
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            className="w-full max-w-md rounded-2xl border border-emerald-500/20 bg-[#0B1120] p-6 relative"
-          >
-            <button
-              onClick={() => setCredentials(null)}
-              className="absolute top-4 right-4 text-zinc-500 hover:text-white transition"
-              aria-label="Close"
-            >
-              <X size={18} />
-            </button>
+      {credentials && <AdminDialog title="Dealer approved · Login credentials" onClose={()=>setCredentials(null)}><p className="aw-muted">{credentials.businessName} — copy the newly issued credentials now. Share them manually; closing this window clears them from the panel.</p><CredentialField label="Dealer login ID" value={credentials.dealerId}/><CredentialField label="New password" value={credentials.tempPassword} secret/><p className="aw-muted">Login at wellcardeals.com/dealer-login. Lost credentials can be replaced from Dealer accounts.</p><button type="button" className="aw-button aw-primary" onClick={()=>setCredentials(null)}>Done</button></AdminDialog>}
 
-            <div className="flex items-center gap-2 mb-1">
-              <CheckCircle2 size={18} className="text-emerald-400" />
-              <h2 className="text-lg font-semibold text-white">Dealer Approved</h2>
-            </div>
-            <p className="text-sm text-zinc-400 mb-5">
-              {credentials.businessName} — email sending isn't set up yet, so share these with the
-              dealer manually.
-            </p>
-
-            <div className="space-y-3">
-              <div>
-                <p className="text-xs text-zinc-500 mb-1">Dealer ID</p>
-                <div className="flex items-center gap-2">
-                  <code className="flex-1 text-sm font-mono bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-blue-400">
-                    {credentials.dealerId}
-                  </code>
-                  <button
-                    onClick={() => navigator.clipboard.writeText(credentials.dealerId)}
-                    className="text-xs font-semibold border border-white/10 hover:bg-white/5 text-zinc-300 px-3 py-2 rounded-lg transition"
-                  >
-                    Copy
-                  </button>
-                </div>
-              </div>
-
-              <div>
-                <p className="text-xs text-zinc-500 mb-1">Temporary Password</p>
-                <div className="flex items-center gap-2">
-                  <code className="flex-1 text-sm font-mono bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-amber-400">
-                    {credentials.tempPassword}
-                  </code>
-                  <button
-                    onClick={() => navigator.clipboard.writeText(credentials.tempPassword)}
-                    className="text-xs font-semibold border border-white/10 hover:bg-white/5 text-zinc-300 px-3 py-2 rounded-lg transition"
-                  >
-                    Copy
-                  </button>
-                </div>
-              </div>
-
-              <div>
-                <p className="text-xs text-zinc-500 mb-1">Registered Email</p>
-                <p className="text-sm text-zinc-300">{credentials.email}</p>
-              </div>
-            </div>
-
-            <button
-              onClick={() =>
-                navigator.clipboard.writeText(
-                  `Dealer ID: ${credentials.dealerId}\nPassword: ${credentials.tempPassword}\nLogin: https://wellcardeals.com/dealer-login`
-                )
-              }
-              className="w-full mt-5 text-xs font-semibold bg-blue-600 hover:bg-blue-500 text-white px-3 py-2.5 rounded-lg transition"
-            >
-              Copy All (for WhatsApp/SMS)
-            </button>
-
-            <p className="text-[11px] text-zinc-500 text-center mt-3">
-              This password is permanent until reset — dealers can't change it themselves.
-              If they lose it, use "Reset Password" on the Manage Dealers page to issue a new one.
-            </p>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

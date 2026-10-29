@@ -282,15 +282,20 @@ export async function fetchDealerApplications(status = "pending") {
 }
 
 export async function setDealerApplicationStatus(id, status) {
+  if (status !== "rejected") throw new Error("Use verified approval to approve a dealer application.");
   const { data, error } = await supabase
     .from("dealer_applications")
     .update({ status })
     .eq("id", id)
+    .eq("status", "pending")
     .select()
-    .single();
+    .maybeSingle();
   if (error) {
     console.error("Error in setDealerApplicationStatus:", error.message);
     throw error;
+  }
+  if (!data || data.id !== id || data.status !== status) {
+    throw new Error("This application is no longer pending. Reload applications before reviewing it.");
   }
   return data;
 }
@@ -312,6 +317,9 @@ export async function approveDealerApplication(id) {
     const failure = new Error(detail?.error || error?.message || "Dealer approval unavailable.");
     if (detail?.provisioningUserId) failure.provisioningUserId = detail.provisioningUserId;
     throw failure;
+  }
+  if (!data?.ok || data.id !== id || data.status !== "approved" || !data.dealer_id || !data.auth_user_id) {
+    throw new Error("Approval could not be verified. Reload the application before retrying.");
   }
   return data;
 }

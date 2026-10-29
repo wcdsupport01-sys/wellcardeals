@@ -1,3 +1,4 @@
+import AdminRecordCollection from "../components/AdminRecordCollection";
 import { readPages } from "../../lib/readPages";
 import { useStaffAccess } from "../hooks/useStaffAccess";
 import React, { useEffect, useMemo, useState } from "react";
@@ -125,7 +126,7 @@ export default function ManageEnquiriesPage() {
       ) : filtered.length === 0 ? (
         <p className="text-sm text-zinc-500">No enquiries match.</p>
       ) : (
-        <div className="space-y-3">
+        <AdminRecordCollection rows={filtered} kind="enquiry">
           {filtered.map((m) => (
             <div
               key={m.id}
@@ -181,7 +182,7 @@ export default function ManageEnquiriesPage() {
               </div>
             </div>
           ))}
-        </div>
+        </AdminRecordCollection>
       )}
     </div>
   );

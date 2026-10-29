@@ -1,3 +1,4 @@
+import AdminRecordCollection from "../components/AdminRecordCollection";
 import { readPages } from "../../lib/readPages";
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../../lib/supabaseClient";
@@ -141,7 +142,7 @@ export default function ManageAgentSubmissionsPage() {
       ) : filtered.length === 0 ? (
         <p className="text-sm text-zinc-500">No submissions match.</p>
       ) : (
-        <div className="space-y-3">
+        <AdminRecordCollection rows={filtered} kind="submission">
           {filtered.map((car) => {
             const agent = agentsMap[car.submitted_by_agent_id];
             return (
@@ -232,7 +233,7 @@ export default function ManageAgentSubmissionsPage() {
               </div>
             );
           })}
-        </div>
+        </AdminRecordCollection>
       )}
     </div>
   );

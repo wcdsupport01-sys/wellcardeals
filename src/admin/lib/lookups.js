@@ -25,11 +25,11 @@ export const DRIVE_TYPE_OPTIONS = ["FWD", "RWD", "AWD", "4WD"];
 export const RC_STATUS_OPTIONS = ["Clear", "Hypothecated", "Duplicate"];
 export const FINANCE_STATUS_OPTIONS = ["No Loan", "Loan Active", "NOC Pending"];
 export const CHANNEL_OPTIONS = [
-  { value: "buyer", label: "Buyer Auction" },
+  { value: "buyer", label: "Direct sale · Buy Car" },
   { value: "dealer", label: "Dealer Auction" },
 ];
 export const LISTING_TYPE_OPTIONS = [
-  { value: "auction", label: "Auction (bidding enabled)" },
+  { value: "auction", label: "Dealer Auction (bidding enabled)" },
   { value: "buy_now_only", label: "Buy Now Only (fixed price, no bidding)" },
 ];
 export const STATUS_OPTIONS = ["draft", "upcoming", "live", "closed", "sold", "delisted"];

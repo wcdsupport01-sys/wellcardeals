@@ -1,100 +1,21 @@
-import { NavLink, Outlet, useNavigate, Link } from "react-router-dom";
-import { LayoutDashboard, PlusSquare, ListTree, Car, LogOut, Users, UserCog, Gavel, Handshake, ShoppingCart, FileText, Home, Boxes, ShieldCheck, ClipboardList, UserCheck, Mail, ClipboardCheck } from "lucide-react";
-import { useAuth } from "../auth/AuthContext";
-
-// `roles` = which of admin / manager / team_lead see this item. Keeping the
-// visibility rule right next to each link (instead of a second filtered
-// list elsewhere) is what keeps the sidebar and the actual route guards
-// (StaffOnly, in App.jsx) from silently drifting apart.
-//
-// Team Lead mirrors Manager's access except: Manage Dealers, Dealer
-// Applications, Manage Agents, and Manage Users — those stay
-// admin/manager-only.
-const NAV = [
-  { to: "/admin", label: "Dashboard", icon: LayoutDashboard, end: true, roles: ["admin", "manager", "team_lead"] },
-  { to: "/admin/inventory", label: "Inventory", icon: Boxes, roles: ["admin", "manager", "team_lead"] },
-  { to: "/admin/add-car", label: "Add Car", icon: PlusSquare, roles: ["admin", "manager"] },
-  { to: "/admin/bids", label: "Live Bids", icon: Gavel, roles: ["admin", "manager", "team_lead"] },
-  { to: "/admin/negotiate", label: "Negotiate", icon: Handshake, roles: ["admin", "manager"] },
-  { to: "/admin/buy-requests", label: "Buy Now Requests", icon: ShoppingCart, roles: ["admin", "manager", "team_lead"] },
-  { to: "/admin/auction-requests", label: "Sell Requests", icon: FileText, roles: ["admin", "manager", "team_lead"] },
-  { to: "/admin/agent-submissions", label: "Agent Submissions", icon: UserCheck, roles: ["admin", "manager", "team_lead"] },
-  { to: "/admin/enquiries", label: "Enquiries", icon: Mail, roles: ["admin", "manager", "team_lead"] },
-  { to: "/admin/c2c-deals", label: "C2C Deals", icon: UserCheck, roles: ["admin", "manager", "team_lead"] },
-  { to: "/admin/pdi-requests", label: "PDI Requests", icon: ClipboardCheck, roles: ["admin", "manager", "team_lead"] },
-  { to: "/admin/dealers", label: "Manage Dealers", icon: Users, roles: ["admin", "manager"] },
-  { to: "/admin/dealer-applications", label: "Dealer Applications", icon: ClipboardList, roles: ["admin", "manager"] },
-  { to: "/admin/agents", label: "Manage Agents", icon: UserCog, roles: ["admin"] },
-  { to: "/admin/users", label: "Manage Users", icon: ShieldCheck, roles: ["admin"] },
-  { to: "/admin/lookups", label: "Dropdown Settings", icon: ListTree, roles: ["admin", "manager"] },
-];
-
-const ROLE_LABEL = {
-  admin: "Admin Portal",
-  manager: "Manager Portal",
-  team_lead: "Team Lead Portal",
-};
-
-export default function AdminLayout() {
-  const { profile, role, signOut } = useAuth();
-  const navigate = useNavigate();
-
-  async function handleSignOut() {
-    await signOut();
-    navigate("/admin-login", { replace: true });
-  }
-
-  const visibleNav = NAV.filter((item) => item.roles.includes(role));
-  const portalLabel = ROLE_LABEL[role] || "Admin Portal";
-
-  return (
-    <div className="min-h-screen bg-[#0B1120] text-white flex">
-      <aside className="w-64 shrink-0 border-r border-white/10 bg-[#0B1120] hidden md:flex flex-col">
-        <div className="px-6 py-6 flex items-center gap-2 border-b border-white/10">
-          <Car className="text-blue-400" size={22} />
-          <span className="font-semibold tracking-tight">{portalLabel}</span>
-        </div>
-        <nav className="flex-1 px-3 py-4 space-y-1">
-          <Link
-            to="/"
-            className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm text-zinc-400 hover:bg-white/5 hover:text-white mb-1"
-          >
-            <Home size={18} /> Back to Home
-          </Link>
-          {visibleNav.map(({ to, label, icon: Icon, end }) => (
-            <NavLink
-              key={to}
-              to={to}
-              end={end}
-              className={({ isActive }) =>
-                `flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm transition ${
-                  isActive
-                    ? "bg-blue-600/20 text-blue-400 font-medium"
-                    : "text-zinc-400 hover:bg-white/5 hover:text-white"
-                }`
-              }
-            >
-              <Icon size={18} />
-              {label}
-            </NavLink>
-          ))}
-        </nav>
-        <div className="px-4 py-4 border-t border-white/10 flex items-center justify-between">
-          <span className="text-sm text-zinc-400 truncate">{profile?.full_name || portalLabel}</span>
-          <button onClick={handleSignOut} className="flex items-center gap-1.5 text-sm text-zinc-400 hover:text-red-400 shrink-0">
-            <LogOut size={16} />
-          </button>
-        </div>
-      </aside>
-      <main className="flex-1 min-w-0">
-        <div className="md:hidden flex items-center gap-2 px-4 py-4 border-b border-white/10">
-          <LayoutDashboard className="text-blue-400" size={20} />
-          <span className="font-semibold">{portalLabel}</span>
-        </div>
-        <div className="max-w-6xl mx-auto px-4 md:px-8 py-8">
-          <Outlet />
-        </div>
-      </main>
-    </div>
-  );
+import { createElement } from "react";
+import { useEffect,useState } from 'react';
+import { NavLink,Outlet,useNavigate,Link,useLocation } from 'react-router-dom';
+import { Bell,Search,Menu,LogOut,ShieldCheck,ChevronRight,Home,ArrowRight,RefreshCw } from 'lucide-react';
+import { useAuth } from '../auth/AuthContext';
+import logo from '../assets/logo1-real.png';
+import { ADMIN_GROUPS,adminPages,roleLabel } from './lib/navigation';
+import { useAdminOverview,attentionItems } from './hooks/useAdminOverview';
+import { AdminWorkspaceContext } from './context/AdminWorkspaceContext';
+import WorkspaceSearch from './components/WorkspaceSearch';
+import AdminDialog from './components/AdminDialog';
+import './admin-workspace.css';
+export default function AdminLayout(){
+ const {profile,role,signOut}=useAuth(),navigate=useNavigate(),location=useLocation();
+ const overview=useAdminOverview(role);const [searchOpen,setSearchOpen]=useState(false),[menuOpen,setMenuOpen]=useState(false),[notificationsOpen,setNotificationsOpen]=useState(false),[signOutError,setSignOutError]=useState('');
+ const page=adminPages(role).find(item=>item[0]===location.pathname)?.[1]||'Overview';const attention=attentionItems(overview.snapshot,role);const total=attention.reduce((n,item)=>n+item.count,0);const initials=(profile?.full_name||'Staff').split(' ').map(w=>w[0]).slice(0,2).join('').toUpperCase();
+ useEffect(()=>{const key=e=>{if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='k'){e.preventDefault();setSearchOpen(v=>!v);}};window.addEventListener('keydown',key);return()=>window.removeEventListener('keydown',key);},[]);
+ const closeNav=()=>setMenuOpen(false);
+ const sidebar=<><Link to="/admin" onClick={closeNav} className="aw-brand"><img src={logo} alt="WellCarDeals"/><span><strong>Well<span>Car</span>Deals</strong><small>OPERATIONS WORKSPACE</small></span></Link><nav aria-label="Admin navigation" className="aw-navigation">{ADMIN_GROUPS.map(group=>{const items=group.items.filter(i=>i[3].includes(role));return items.length?<div className="aw-nav-group" key={group.label}><p>{group.label}</p>{items.map(([to,label,Icon])=><NavLink key={to} to={to} end={to==='/admin'} onClick={closeNav} className={({isActive})=>'aw-nav-link'+(isActive?' is-active':'')}>{createElement(Icon,{size:17})}<span>{label}</span>{attention.find(a=>a.to===to)?.count>0&&<small>{attention.find(a=>a.to===to).count}</small>}</NavLink>)}</div>:null;})}</nav><div className="aw-sidebar-footer"><Link to="/" className="aw-site-link"><Home size={15}/>Back to website</Link><div><span className="aw-avatar">{initials}</span><span><strong>{profile?.full_name||roleLabel(role)}</strong><small>{roleLabel(role)}</small></span><button type="button" title="Sign out" aria-label="Sign out" onClick={async()=>{try{await signOut();navigate('/admin-login',{replace:true});}catch{setSignOutError('Sign out could not be confirmed. Please retry.');}}}><LogOut size={17}/></button></div>{signOutError&&<p role="alert">{signOutError}</p>}</div></>;
+ return <AdminWorkspaceContext.Provider value={overview}><div className="admin-workspace" data-admin-release="2026-10-29-v2"><aside className="aw-sidebar">{sidebar}</aside><div className="aw-workspace"><header className="aw-topbar"><button type="button" className="aw-icon-button aw-mobile-toggle" onClick={()=>setMenuOpen(true)} aria-label="Open navigation"><Menu size={20}/></button><div className="aw-topbar-context"><span>Workspace</span><ChevronRight size={12}/><strong>{page}</strong></div><button type="button" className="aw-global-search" onClick={()=>setSearchOpen(true)}><Search size={16}/><span>Search cars, dealers, requests…</span><kbd>Ctrl K</kbd></button><button className="aw-icon-button aw-refresh" type="button" onClick={overview.refresh} aria-label="Refresh workspace totals"><RefreshCw size={17}/></button><button className="aw-icon-button aw-bell" type="button" onClick={()=>setNotificationsOpen(true)} aria-label="Open notifications"><Bell size={20}/>{total>0&&<span/>}</button><div className="aw-account"><span className="aw-avatar">{initials}</span><div><strong>{profile?.full_name||'Staff'}</strong><small>{roleLabel(role)}</small></div></div></header><main className="aw-content" id="admin-content"><Outlet/></main><footer className="aw-footer"><span>© {new Date().getFullYear()} WellCarDeals · Operations workspace</span><span><ShieldCheck size={13}/>{roleLabel(role)} access</span></footer></div>{menuOpen&&<AdminDialog title="Navigation" drawer onClose={closeNav}><div className="aw-mobile-sidebar">{sidebar}</div></AdminDialog>}{searchOpen&&<WorkspaceSearch role={role} onClose={()=>setSearchOpen(false)}/>}{notificationsOpen&&<AdminDialog title="Needs your attention" drawer onClose={()=>setNotificationsOpen(false)}>{overview.error?<div role="alert" className="aw-notice">Pending work could not be loaded. <button onClick={overview.refresh}>Retry</button></div>:overview.loading&&!overview.snapshot?<p className="aw-muted">Loading pending work…</p>:attention.length?<div className="aw-notification-list">{attention.map(item=><Link key={item.to} to={item.to} onClick={()=>setNotificationsOpen(false)}><span><strong>{item.title}</strong><small>{item.description}</small></span><b>{item.count}</b><ArrowRight size={15}/></Link>)}</div>:<div className="aw-empty"><ShieldCheck size={28}/><h3>All caught up</h3><p>No pending work in your accessible queues.</p></div>}<p className="aw-muted">{overview.snapshot?'Checked '+new Date(overview.snapshot.loadedAt).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'}):'Refresh to load the latest records.'}</p></AdminDialog>}</div></AdminWorkspaceContext.Provider>;
 }
