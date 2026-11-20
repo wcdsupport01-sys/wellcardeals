@@ -1,18 +1,22 @@
 import AdminRecordCollection from "../components/AdminRecordCollection";
-import { useEffect, useMemo, useState } from "react";
-import { UserPlus, Loader2, AlertCircle, Copy, Check, ShieldBan, XCircle, RotateCcw, Search, KeyRound, X } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  UserPlus, Loader2, AlertCircle, Copy, Check, ShieldBan,
+  XCircle, RotateCcw, Search, KeyRound, X, Eye, EyeOff,
+} from "lucide-react";
 import { supabase } from "../../lib/supabaseClient";
 import { useAuth } from "../../auth/AuthContext";
 import { inputClass } from "../components/FormSection";
 import { resetUserPassword } from "../../auth/authApi";
+import {
+  DEFAULT_COMPANY_EMAIL,
+  pendingStaffLoginId,
+  clearPendingStaff,
+  createStaffAccount,
+} from "../lib/staffAccounts";
 
-// Manage Users is for internal company staff only — the people who run the
-// backend (admin/manager/team_lead) plus field agents. Dealers and buyers
-// are customers, not staff: dealers are handled on the separate
-// "Manage Dealers" page, and buyers don't get an admin-managed account here.
 const ALL_ROLES = ["admin", "manager", "team_lead", "agent"];
-const STAFF_ROLES = ["admin", "manager", "team_lead"]; // creatable via the "New Staff Account" form on this page
-const CHANGEABLE_ROLES = ["admin", "manager", "team_lead", "agent"]; // roles this page can reassign between
+const STAFF_ROLES = ["admin", "manager", "team_lead"];
 
 const STATUS_STYLES = {
   approved: "bg-emerald-500/15 text-emerald-400",
@@ -28,32 +32,156 @@ const ROLE_STYLES = {
   agent: "bg-cyan-500/15 text-cyan-400",
 };
 
-function CopyRow({ label, value }) {
-  const [copied, setCopied] = useState(false);
+function roleLabel(role) {
+  if (role === "team_lead") return "Team Lead";
+  return role ? role[0].toUpperCase() + role.slice(1) : "Unknown";
+}
+
+function companyContact(user) {
+  return user.company_email || DEFAULT_COMPANY_EMAIL;
+}
+
+function Field({ label, children }) {
   return (
-    <div className="flex items-center justify-between gap-3 rounded-xl bg-zinc-900/70 border border-white/10 px-4 py-3">
-      <div className="min-w-0">
-        <p className="text-xs text-zinc-500">{label}</p>
-        <p className="text-sm font-mono font-semibold text-white tracking-wide truncate">{value}</p>
+    <label className="block space-y-1.5 text-xs font-semibold text-zinc-300">
+      <span>{label}</span>
+      {children}
+    </label>
+  );
+}
+
+function CopyRow({ label, value, secret = false }) {
+  const [visible, setVisible] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [copyError, setCopyError] = useState("");
+  const timer = useRef(null);
+
+  useEffect(() => () => clearTimeout(timer.current), []);
+
+  async function handleCopy() {
+    setCopyError("");
+    try {
+      await navigator.clipboard.writeText(String(value ?? ""));
+      setCopied(true);
+      clearTimeout(timer.current);
+      timer.current = setTimeout(() => setCopied(false), 1500);
+    } catch {
+      setCopyError(
+        secret
+          ? "Use Show, then select and copy the password manually."
+          : "Select and copy this value manually.",
+      );
+    }
+  }
+
+  return (
+    <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+      <p className="mb-1 text-xs font-semibold text-slate-500">{label}</p>
+      <div className="flex items-center gap-2">
+        <input
+          aria-label={label}
+          readOnly
+          value={String(value ?? "")}
+          type={secret && !visible ? "password" : "text"}
+          autoComplete="off"
+          onFocus={(event) => event.target.select()}
+          className="min-w-0 flex-1 bg-transparent text-sm font-mono font-semibold text-slate-900 outline-none"
+        />
+        {secret && (
+          <button
+            type="button"
+            onClick={() => setVisible((old) => !old)}
+            aria-label={visible ? "Hide password" : "Show password"}
+            className="rounded-lg p-2 text-slate-500 hover:bg-slate-100"
+          >
+            {visible ? <EyeOff size={15} /> : <Eye size={15} />}
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={handleCopy}
+          className="flex shrink-0 items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100"
+        >
+          {copied ? <Check size={13} /> : <Copy size={13} />}
+          {copied ? "Copied" : "Copy"}
+        </button>
       </div>
+      {copyError && (
+        <p role="status" className="mt-2 text-xs text-amber-700">
+          {copyError}
+        </p>
+      )}
+    </div>
+  );
+}
+
+function PasswordDialog({ credential, onClose }) {
+  const dialogRef = useRef(null);
+
+  useEffect(() => {
+    const node = dialogRef.current;
+    if (node && !node.open) node.showModal();
+    return () => {
+      if (node?.open) node.close();
+    };
+  }, []);
+
+  return (
+    <dialog
+      ref={dialogRef}
+      aria-labelledby="staff-password-title"
+      onCancel={(event) => {
+        event.preventDefault();
+        onClose();
+      }}
+      onClose={onClose}
+      className="w-[calc(100%_-_2rem)] max-w-md rounded-2xl border border-slate-200 bg-white p-6 text-slate-900 shadow-2xl backdrop:bg-slate-950/60"
+    >
       <button
         type="button"
-        onClick={() => {
-          navigator.clipboard.writeText(value);
-          setCopied(true);
-          setTimeout(() => setCopied(false), 1500);
-        }}
-        className="shrink-0 rounded-lg border border-white/10 px-3 py-1.5 text-xs text-zinc-300 hover:bg-white/5 flex items-center gap-1.5"
+        onClick={onClose}
+        aria-label="Close password"
+        className="absolute right-4 top-4 rounded-lg p-1 text-slate-500"
       >
-        {copied ? <Check size={13} className="text-emerald-400" /> : <Copy size={13} />}
-        {copied ? "Copied" : "Copy"}
+        <X size={18} />
       </button>
-    </div>
+      <div className="mb-2 flex items-center gap-2 pr-6">
+        <KeyRound size={18} className="text-blue-600" />
+        <h2 id="staff-password-title" className="text-lg font-bold">
+          New password issued
+        </h2>
+      </div>
+      <p className="mb-4 text-sm text-slate-600">
+        {credential.user.full_name || "Staff account"} — the old password
+        has stopped working. Copy the new password before closing.
+      </p>
+      <div className="space-y-3">
+        {credential.user.staff_login_id && (
+          <CopyRow label="Staff ID" value={credential.user.staff_login_id} />
+        )}
+        <CopyRow
+          label="Company contact email"
+          value={companyContact(credential.user)}
+        />
+        <CopyRow label="New password" value={credential.password} secret />
+      </div>
+      <p className="mt-4 text-xs text-slate-500">
+        The password is shown for this reset only.
+      </p>
+      <button
+        type="button"
+        onClick={onClose}
+        className="mt-5 w-full rounded-xl bg-blue-600 py-2.5 text-sm font-bold text-white hover:bg-blue-500"
+      >
+        Done
+      </button>
+    </dialog>
   );
 }
 
 export default function ManageUsersPage() {
   const { user: currentUser } = useAuth();
+
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -61,213 +189,395 @@ export default function ManageUsersPage() {
   const [roleFilter, setRoleFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
   const [busyId, setBusyId] = useState(null);
+  const [notice, setNotice] = useState(null);
 
   const [showForm, setShowForm] = useState(false);
   const [fullName, setFullName] = useState("");
-  const [email, setEmail] = useState("");
+  const [companyEmail, setCompanyEmail] = useState(DEFAULT_COMPANY_EMAIL);
+  const [staffLoginId, setStaffLoginId] = useState("");
   const [phone, setPhone] = useState("");
   const [newRole, setNewRole] = useState("manager");
   const [password, setPassword] = useState("");
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState("");
   const [credentials, setCredentials] = useState(null);
-
-  // Password reset — works for ANY account (admin, manager, team lead,
-  // dealer, buyer). New password is shown exactly once in a modal, right
-  // after generation, and is never stored or shown again after that.
+  const [checking, setChecking] = useState(false);
   const [resettingId, setResettingId] = useState(null);
-  const [resetNotice, setResetNotice] = useState(null); // { id, text, isError }
-  const [newCredential, setNewCredential] = useState(null); // { user, password }
+  const [newCredential, setNewCredential] = useState(null);
 
-  async function load() {
+  const createLock = useRef(false);
+  const mutationLock = useRef(false);
+  const mounted = useRef(false);
+  const loadVersion = useRef(0);
+
+  const load = useCallback(async () => {
+    const version = ++loadVersion.current;
     setLoading(true);
     setError(null);
-    const { data, error } = await supabase
-      .from("profiles")
-      .select("*")
-      .in("role", ALL_ROLES) // staff only — dealers/buyers never show up here
-      .order("created_at", { ascending: false });
-    if (error) setError(error.message);
-    else setUsers(data || []);
-    setLoading(false);
-  }
+    try {
+      const { data, error: readError } = await supabase
+        .from("profiles")
+        .select("*")
+        .in("role", ALL_ROLES)
+        .order("created_at", { ascending: false });
 
-  useEffect(() => {
-    load();
+      if (readError) throw readError;
+      if (mounted.current && loadVersion.current === version) {
+        setUsers(data || []);
+      }
+    } catch (failure) {
+      if (mounted.current && loadVersion.current === version) {
+        setError(failure.message || "Staff could not be loaded.");
+      }
+    } finally {
+      if (mounted.current && loadVersion.current === version) {
+        setLoading(false);
+      }
+    }
   }, []);
 
-  async function handleCreate(e) {
-    e.preventDefault();
+  useEffect(() => {
+    mounted.current = true;
+    load();
+    return () => {
+      mounted.current = false;
+      loadVersion.current += 1;
+    };
+  }, [load]);
+
+  function toggleForm() {
+    if (createLock.current) return;
+    setCredentials(null);
     setCreateError("");
-    if (!fullName.trim() || !email.trim()) {
-      setCreateError("Name and email are required.");
+
+    if (showForm) {
+      setPassword("");
+      setShowForm(false);
       return;
     }
-    setCreating(true);
+
     try {
-      const { data, error } = await supabase.functions.invoke("create-staff-user", {
-        body: {
-          fullName: fullName.trim(),
-          email: email.trim(),
-          phone: phone.trim() || null,
-          role: newRole,
-          password: password.trim() || undefined,
-        },
-      });
-      if (error || data?.error) throw new Error(data?.error || error.message);
-      setCredentials(data);
+      setStaffLoginId(pendingStaffLoginId(currentUser?.id));
+      setShowForm(true);
+    } catch (failure) {
+      setCreateError(failure.message || "The staff form could not be opened.");
+    }
+  }
+
+  async function handleCreate(event) {
+    event.preventDefault();
+    if (createLock.current) return;
+
+    createLock.current = true;
+    setCreating(true);
+    setCreateError("");
+
+    try {
+      const result = await createStaffAccount(
+        supabase,
+        { fullName, companyEmail, staffLoginId, phone, role: newRole, password },
+        currentUser?.id,
+      );
+      setCredentials(result);
       setFullName("");
-      setEmail("");
       setPhone("");
       setPassword("");
+      setSearch(result.staffLoginId);
+      setRoleFilter("all");
+      setStatusFilter("all");
       await load();
-    } catch (err) {
-      setCreateError(err.message || "Couldn't create the account.");
+    } catch (failure) {
+      setCreateError(
+        failure.message ||
+        "The result could not be confirmed. Check this Staff ID before retrying.",
+      );
     } finally {
+      createLock.current = false;
       setCreating(false);
     }
   }
 
-  // Change role for anyone — ADMIN "Owner" power. Direct table write relies
-  // on the "profiles: admins update all" RLS policy (auth_schema.sql) +
-  // prevent_self_privilege_escalation trigger, both of which only let a
-  // caller whose OWN role is 'admin' touch the role/status columns of
-  // another row — see rbac_manager_teamlead_migration.sql.
-  async function changeRole(id, role) {
-    setBusyId(id);
-    const { error } = await supabase.from("profiles").update({ role }).eq("id", id);
-    setBusyId(null);
-    if (error) {
-      alert(`Couldn't change role: ${error.message}`);
-      return;
+  async function checkPendingAccount() {
+    if (!staffLoginId || checking || createLock.current) return;
+    setChecking(true);
+
+    try {
+      const { data, error: readError } = await supabase
+        .from("profiles")
+        .select("id,staff_login_id,role")
+        .eq("staff_login_id", staffLoginId)
+        .maybeSingle();
+
+      if (readError) throw readError;
+      setSearch(staffLoginId);
+      setRoleFilter("all");
+      setStatusFilter("all");
+
+      if (
+        data?.id &&
+        data.staff_login_id === staffLoginId &&
+        ALL_ROLES.includes(data.role)
+      ) {
+        clearPendingStaff(currentUser?.id, staffLoginId);
+        setPassword("");
+        setCredentials(null);
+        setShowForm(false);
+        setCreateError("");
+        await load();
+        setNotice({
+          id: data.id,
+          text: "This Staff ID already has an account. Use Reset Password if its password was not received.",
+          isError: false,
+        });
+      } else {
+        setCreateError(
+          "No staff profile was found for this ID. Keep this ID when retrying. " +
+          "If its login already exists, account setup may need to be completed.",
+        );
+      }
+    } catch (failure) {
+      setCreateError(
+        failure.message ||
+        "The Staff ID could not be checked. Keep the same ID when retrying.",
+      );
+    } finally {
+      setChecking(false);
     }
-    setUsers((prev) => prev.map((u) => (u.id === id ? { ...u, role } : u)));
   }
 
-  async function setStatus(id, status) {
-    setBusyId(id);
-    const { error } = await supabase.from("profiles").update({ status }).eq("id", id);
-    setBusyId(null);
-    if (error) {
-      alert(`Couldn't update: ${error.message}`);
+  async function updateAccount(user, changes) {
+    if (mutationLock.current || user.id === currentUser?.id) return;
+
+    if (!currentUser?.id) {
+      setNotice({
+        id: user.id,
+        text: "Sign in before changing this account.",
+        isError: true,
+      });
       return;
     }
-    setUsers((prev) => prev.map((u) => (u.id === id ? { ...u, status } : u)));
+
+    mutationLock.current = true;
+    setBusyId(user.id);
+    setNotice(null);
+
+    try {
+      const { data, error: writeError } = await supabase
+        .from("profiles")
+        .update(changes)
+        .eq("id", user.id)
+        .select("id,role,status")
+        .maybeSingle();
+
+      if (writeError) throw writeError;
+
+      if (
+        !data ||
+        data.id !== user.id ||
+        Object.entries(changes).some(([key, value]) => data[key] !== value)
+      ) {
+        throw new Error("The update was not confirmed. Reload staff before retrying.");
+      }
+
+      setUsers((previous) => previous.map((item) =>
+        item.id === user.id ? { ...item, ...data } : item,
+      ));
+    } catch (failure) {
+      setNotice({
+        id: user.id,
+        text: failure.message || "The account update could not be confirmed.",
+        isError: true,
+      });
+    } finally {
+      mutationLock.current = false;
+      setBusyId(null);
+    }
   }
 
   async function handleResetPassword(user) {
-    if (
-      !window.confirm(
-        `Issue ${user.full_name || user.email} a brand new password? Their old password will stop working immediately.`
-      )
-    ) {
-      return;
-    }
-    setResettingId(user.id);
-    setResetNotice(null);
+    if (mutationLock.current) return;
+    mutationLock.current = true;
+
     try {
-      const result = await resetUserPassword(user.id);
+      if (!currentUser?.id) {
+        throw new Error("Sign in before resetting this password.");
+      }
+
+      const reference = user.staff_login_id || user.email || user.id;
+      if (!window.confirm(
+        `Issue a new password for ${user.full_name || "this staff account"} ` +
+        `(${reference})? Their old password will stop working immediately.`,
+      )) return;
+
+      setResettingId(user.id);
+      setNotice(null);
+
+      const result = await resetUserPassword(user.id, undefined, {
+        expectedActorId: currentUser.id,
+      });
       setNewCredential({ user, password: result.password });
-    } catch (err) {
-      setResetNotice({ id: user.id, text: err.message || "Couldn't reset password.", isError: true });
+    } catch (failure) {
+      setNotice({
+        id: user.id,
+        text: failure.message || "The password reset could not be confirmed.",
+        isError: true,
+      });
     } finally {
+      mutationLock.current = false;
       setResettingId(null);
     }
   }
 
-  async function copyPassword(password) {
-    try {
-      await navigator.clipboard.writeText(password);
-    } catch {
-      // clipboard API unavailable — password is still visible to copy by hand
-    }
-  }
-
   const roleCounts = useMemo(() => {
-    const c = { all: users.length };
-    ALL_ROLES.forEach((r) => (c[r] = 0));
-    users.forEach((u) => {
-      if (c[u.role] !== undefined) c[u.role] += 1;
+    const counts = { all: users.length };
+    ALL_ROLES.forEach((role) => { counts[role] = 0; });
+    users.forEach((user) => {
+      if (ALL_ROLES.includes(user.role)) counts[user.role] += 1;
     });
-    return c;
+    return counts;
   }, [users]);
 
   const filtered = useMemo(() => {
-    let list = users;
-    if (roleFilter !== "all") list = list.filter((u) => u.role === roleFilter);
-    if (statusFilter !== "all") list = list.filter((u) => u.status === statusFilter);
-    if (search.trim()) {
-      const q = search.trim().toLowerCase();
-      list = list.filter(
-        (u) => (u.full_name || "").toLowerCase().includes(q) || (u.email || "").toLowerCase().includes(q)
-      );
-    }
-    return list;
+    const query = search.trim().toLowerCase();
+    return users.filter((user) => {
+      if (roleFilter !== "all" && user.role !== roleFilter) return false;
+      if (statusFilter !== "all" && user.status !== statusFilter) return false;
+
+      return !query || [
+        user.full_name, companyContact(user),
+        user.staff_login_id, user.email, user.id,
+      ].some((value) => String(value || "").toLowerCase().includes(query));
+    });
   }, [users, roleFilter, statusFilter, search]);
+
+  const displayRows = useMemo(() => filtered.map((user) => ({
+    ...user,
+    email: companyContact(user),
+  })), [filtered]);
+
+  const mutating = Boolean(busyId || resettingId);
 
   return (
     <div>
-      <div className="flex items-start justify-between gap-4 flex-wrap mb-1">
-        <h1 className="text-2xl font-semibold text-white">Manage Users</h1>
+      <div className="mb-1 flex flex-wrap items-start justify-between gap-4">
+        <h1 className="text-2xl font-bold text-white">Manage Users</h1>
         <button
-          onClick={() => {
-            setShowForm((v) => !v);
-            setCredentials(null);
-            setCreateError("");
-          }}
-          className="flex items-center gap-1.5 text-sm font-semibold bg-amber-500 hover:bg-amber-400 text-black px-3.5 py-2 rounded-xl transition"
+          type="button"
+          onClick={toggleForm}
+          disabled={creating}
+          className="flex items-center gap-1.5 rounded-xl bg-amber-500 px-3.5 py-2 text-sm font-bold text-black hover:bg-amber-400 disabled:opacity-60"
         >
           <UserPlus size={16} /> New Staff Account
         </button>
       </div>
-      <p className="text-sm text-zinc-400 mb-6">
-        Add, edit, suspend/ban, reset the password, or change the role of anyone on your team — admins, managers,
-        team leads, and agents. Dealers are managed separately on the "Manage Dealers" page.
+
+      <p className="mb-6 text-sm text-zinc-400">
+        Manage admins, managers, team leads and agents. Staff can share the
+        company contact email; each new staff member signs in with a separate
+        Staff ID and password. Dealers are managed on Manage Dealers.
       </p>
 
+      {!showForm && createError && (
+        <p role="alert" className="mb-4 text-sm text-red-400">{createError}</p>
+      )}
+
       {showForm && (
-        <div className="mb-6 border border-white/10 rounded-2xl p-5 bg-white/[0.02]">
+        <div className="mb-6 rounded-2xl border border-white/10 bg-white/[0.02] p-5">
           {!credentials ? (
             <form onSubmit={handleCreate} className="space-y-4">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <input placeholder="Full name" className={inputClass} value={fullName} onChange={(e) => setFullName(e.target.value)} />
-                <input type="email" placeholder="Email" className={inputClass} value={email} onChange={(e) => setEmail(e.target.value)} />
-                <input placeholder="Phone (optional)" className={inputClass} value={phone} onChange={(e) => setPhone(e.target.value)} />
-                <select className={inputClass} value={newRole} onChange={(e) => setNewRole(e.target.value)}>
-                  {STAFF_ROLES.map((r) => (
-                    <option key={r} value={r} className="bg-zinc-900">
-                      {r === "team_lead" ? "Team Lead" : r[0].toUpperCase() + r.slice(1)}
-                    </option>
-                  ))}
-                </select>
-                <input
-                  placeholder="Password (optional — auto-generated if blank)"
-                  className={`${inputClass} sm:col-span-2`}
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                />
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <Field label="Full name">
+                  <input required className={inputClass} value={fullName}
+                    disabled={creating} autoComplete="off"
+                    onChange={(event) => setFullName(event.target.value)} />
+                </Field>
+
+                <Field label="Company contact email">
+                  <input type="email" required className={inputClass}
+                    value={companyEmail} disabled={creating} autoComplete="off"
+                    onChange={(event) => setCompanyEmail(event.target.value)} />
+                </Field>
+
+                <Field label="Staff ID · generated automatically">
+                  <input readOnly className={inputClass}
+                    value={staffLoginId} autoComplete="off" />
+                </Field>
+
+                <Field label="Role">
+                  <select className={inputClass} value={newRole}
+                    disabled={creating}
+                    onChange={(event) => setNewRole(event.target.value)}>
+                    {STAFF_ROLES.map((role) => (
+                      <option key={role} value={role} className="bg-zinc-900">
+                        {roleLabel(role)}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+
+                <Field label="Phone · optional">
+                  <input type="tel" className={inputClass} value={phone}
+                    disabled={creating} autoComplete="off"
+                    onChange={(event) => setPhone(event.target.value)} />
+                </Field>
+
+                <Field label="Password · leave blank to generate">
+                  <input type="password" className={inputClass}
+                    value={password} disabled={creating}
+                    autoComplete="new-password"
+                    onChange={(event) => setPassword(event.target.value)} />
+                </Field>
               </div>
+
+              <p className="text-xs text-zinc-400">
+                Use the same company email for every staff member.
+                Login uses the Staff ID shown above.
+              </p>
+
               {createError && (
-                <p className="text-sm text-red-400 flex items-center gap-2">
-                  <AlertCircle size={14} /> {createError}
-                </p>
+                <div role="alert" className="space-y-2">
+                  <p className="flex items-start gap-2 text-sm text-red-400">
+                    <AlertCircle size={15} className="mt-0.5 shrink-0" />
+                    {createError}
+                  </p>
+                  <button type="button" onClick={checkPendingAccount}
+                    disabled={checking || creating}
+                    className="text-xs font-semibold text-blue-400 underline underline-offset-2 disabled:opacity-60">
+                    {checking ? "Checking Staff ID…" : "Check this Staff ID"}
+                  </button>
+                </div>
               )}
-              <button
-                type="submit"
-                disabled={creating}
-                className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-60 text-white text-sm font-semibold px-4 py-2.5 rounded-xl"
-              >
-                {creating && <Loader2 size={16} className="animate-spin" />} Create Account
+
+              <button type="submit" disabled={creating || checking}
+                className="flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-bold text-white hover:bg-blue-500 disabled:opacity-60">
+                {creating && <Loader2 size={16} className="animate-spin" />}
+                Create Account
               </button>
             </form>
           ) : (
             <div className="space-y-3">
-              <p className="text-sm text-emerald-400 flex items-center gap-2">
-                <Check size={15} /> Account created — copy these credentials now, they won't be shown again.
+              <p className="flex items-center gap-2 text-sm font-semibold text-emerald-400">
+                <Check size={15} />
+                Account created. Copy the Staff ID and password before closing.
               </p>
-              <CopyRow label="Email" value={credentials.email} />
-              <CopyRow label="Password" value={credentials.password} />
-              <button onClick={() => setShowForm(false)} className="text-xs text-zinc-400 hover:text-white underline underline-offset-2">
+              <CopyRow label="Staff ID" value={credentials.staffLoginId} />
+              <CopyRow label="Company contact email" value={credentials.companyEmail} />
+              <CopyRow label="Password" value={credentials.password} secret />
+
+              {credentials.directorySyncPending && (
+                <p className="text-xs text-amber-400">
+                  Account created. Its directory copy could not be confirmed.
+                </p>
+              )}
+
+              <button type="button"
+                onClick={() => {
+                  setCredentials(null);
+                  setPassword("");
+                  setStaffLoginId("");
+                  setShowForm(false);
+                }}
+                className="text-sm font-semibold text-blue-400 underline underline-offset-2">
                 Done
               </button>
             </div>
@@ -275,42 +585,45 @@ export default function ManageUsersPage() {
         </div>
       )}
 
-      <div className="flex flex-col sm:flex-row gap-3 mb-3">
-        <div className="relative flex-1 max-w-sm">
-          <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" />
-          <input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search by name or email…"
-            className="w-full pl-9 pr-3 py-2 rounded-xl bg-white/5 border border-white/10 text-sm text-white placeholder:text-zinc-500 focus:outline-none focus:border-blue-500/50"
-          />
+      <div className="mb-3 flex flex-col gap-3 sm:flex-row">
+        <div className="relative max-w-sm flex-1">
+          <Search size={15}
+            className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" />
+          <input value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder="Search name, Staff ID or company email…"
+            aria-label="Search staff"
+            className="w-full rounded-xl border border-white/10 bg-white/5 py-2 pl-9 pr-3 text-sm text-white placeholder:text-zinc-500 focus:border-blue-500/50 focus:outline-none" />
         </div>
-        <div className="flex gap-2 flex-wrap">
-          {["all", "approved", "pending", "rejected", "suspended"].map((s) => (
-            <button
-              key={s}
-              onClick={() => setStatusFilter(s)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-medium capitalize transition ${
-                statusFilter === s ? "bg-blue-500/15 text-blue-400" : "text-zinc-400 hover:bg-white/5"
-              }`}
-            >
-              {s}
+
+        <div className="flex flex-wrap gap-2">
+          {["all", "approved", "pending", "rejected", "suspended"].map((status) => (
+            <button type="button" key={status}
+              onClick={() => setStatusFilter(status)}
+              className={`rounded-lg px-3 py-1.5 text-xs font-semibold capitalize ${
+                statusFilter === status
+                  ? "bg-blue-500/15 text-blue-400"
+                  : "text-zinc-400 hover:bg-white/5"
+              }`}>
+              {status}
             </button>
           ))}
         </div>
       </div>
 
-      <div className="flex gap-2 flex-wrap mb-5">
-        {["all", ...ALL_ROLES].map((r) => (
-          <button
-            key={r}
-            onClick={() => setRoleFilter(r)}
-            className={`px-3 py-1.5 rounded-lg text-xs font-medium capitalize transition flex items-center gap-1.5 ${
-              roleFilter === r ? "bg-amber-500/15 text-amber-400" : "text-zinc-400 hover:bg-white/5"
-            }`}
-          >
-            {r === "team_lead" ? "Team Lead" : r}
-            <span className="text-[10px] opacity-70">({roleCounts[r] ?? 0})</span>
+      <div className="mb-5 flex flex-wrap gap-2">
+        {["all", ...ALL_ROLES].map((role) => (
+          <button type="button" key={role}
+            onClick={() => setRoleFilter(role)}
+            className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold capitalize ${
+              roleFilter === role
+                ? "bg-amber-500/15 text-amber-400"
+                : "text-zinc-400 hover:bg-white/5"
+            }`}>
+            {role === "all" ? "All" : roleLabel(role)}
+            <span className="text-[10px] opacity-70">
+              ({roleCounts[role] ?? 0})
+            </span>
           </button>
         ))}
       </div>
@@ -318,87 +631,104 @@ export default function ManageUsersPage() {
       {loading ? (
         <p className="text-sm text-zinc-500">Loading…</p>
       ) : error ? (
-        <p className="text-sm text-red-400">{error}</p>
+        <div role="alert">
+          <p className="text-sm text-red-400">{error}</p>
+          <button type="button" onClick={load}
+            className="mt-2 text-sm font-semibold text-blue-400 underline">
+            Retry
+          </button>
+        </div>
       ) : filtered.length === 0 ? (
         <p className="text-sm text-zinc-500">No users match.</p>
       ) : (
-        <AdminRecordCollection rows={filtered} kind="user">
-          {filtered.map((u) => {
-            const isSelf = u.id === currentUser?.id;
+        <AdminRecordCollection rows={displayRows} kind="user">
+          {filtered.map((user) => {
+            const isSelf = user.id === currentUser?.id;
+
             return (
-              <div key={u.id} className="flex flex-col md:flex-row md:items-center justify-between gap-3 border border-white/10 rounded-xl p-4 bg-white/[0.02]">
+              <div key={user.id}
+                className="flex flex-col justify-between gap-3 rounded-xl border border-white/10 bg-white/[0.02] p-4 md:flex-row md:items-center">
                 <div className="min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <p className="font-medium text-white truncate">{u.full_name || "Unnamed"}</p>
-                    <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full capitalize ${ROLE_STYLES[u.role] || "bg-zinc-500/15 text-zinc-400"}`}>
-                      {u.role === "team_lead" ? "Team Lead" : u.role}
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="truncate font-bold text-white">
+                      {user.full_name || "Unnamed"}
+                    </p>
+                    <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold capitalize ${
+                      ROLE_STYLES[user.role] || "bg-zinc-500/15 text-zinc-400"
+                    }`}>
+                      {roleLabel(user.role)}
                     </span>
-                    <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full capitalize ${STATUS_STYLES[u.status] || "bg-zinc-500/15 text-zinc-400"}`}>
-                      {u.status}
+                    <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold capitalize ${
+                      STATUS_STYLES[user.status] || "bg-zinc-500/15 text-zinc-400"
+                    }`}>
+                      {user.status}
                     </span>
-                    {isSelf && <span className="text-[11px] text-zinc-500">(you)</span>}
+                    {isSelf && (
+                      <span className="text-[11px] text-zinc-500">(you)</span>
+                    )}
                   </div>
-                  <p className="text-sm text-zinc-400 mt-0.5">{u.email}</p>
-                  {resetNotice?.id === u.id && (
-                    <p className={`text-xs mt-1 ${resetNotice.isError ? "text-red-400" : "text-emerald-400"}`}>{resetNotice.text}</p>
+
+                  <p className="mt-1 text-sm text-zinc-400">
+                    Company contact: {companyContact(user)}
+                  </p>
+
+                  {user.staff_login_id ? (
+                    <p className="mt-1 text-sm font-mono font-semibold text-blue-400">
+                      Staff ID: {user.staff_login_id}
+                    </p>
+                  ) : (
+                    <p className="mt-1 text-xs text-zinc-400">
+                      Account reference: {user.email || user.id}
+                    </p>
+                  )}
+
+                  {notice?.id === user.id && (
+                    <p role="status" className={`mt-2 text-xs ${
+                      notice.isError ? "text-red-400" : "text-emerald-400"
+                    }`}>
+                      {notice.text}
+                    </p>
                   )}
                 </div>
 
-                <div className="flex items-center gap-2 shrink-0 flex-wrap">
-                  <select
-                    disabled={isSelf || busyId === u.id || !CHANGEABLE_ROLES.includes(u.role)}
-                    value={u.role}
-                    onChange={(e) => changeRole(u.id, e.target.value)}
-                    title={isSelf ? "You can't change your own role" : "Change role"}
-                    className="text-xs bg-white/5 border border-white/10 rounded-lg px-2.5 py-2 text-zinc-200 disabled:opacity-50"
-                  >
-                    {CHANGEABLE_ROLES.includes(u.role) ? (
-                      CHANGEABLE_ROLES.map((r) => (
-                        <option key={r} value={r} className="bg-zinc-900">
-                          {r === "team_lead" ? "Team Lead" : r[0].toUpperCase() + r.slice(1)}
-                        </option>
-                      ))
-                    ) : (
-                      <option value={u.role} className="bg-zinc-900">
-                        {u.role}
+                <div className="flex shrink-0 flex-wrap items-center gap-2">
+                  <select disabled={isSelf || mutating} value={user.role}
+                    title={isSelf ? "You cannot change your own role" : "Change role"}
+                    onChange={(event) =>
+                      updateAccount(user, { role: event.target.value })}
+                    className="rounded-lg border border-white/10 bg-white/5 px-2.5 py-2 text-xs text-zinc-200 disabled:opacity-50">
+                    {ALL_ROLES.map((role) => (
+                      <option key={role} value={role} className="bg-zinc-900">
+                        {roleLabel(role)}
                       </option>
-                    )}
+                    ))}
                   </select>
 
-                  <button
-                    disabled={resettingId === u.id}
-                    onClick={() => handleResetPassword(u)}
-                    title="Issue a new password for this account"
-                    className="flex items-center gap-1.5 text-xs font-semibold border border-blue-400/30 text-blue-400 hover:bg-blue-500/10 disabled:opacity-50 px-3 py-2 rounded-lg transition"
-                  >
-                    <KeyRound size={14} /> {resettingId === u.id ? "Resetting…" : "Reset Password"}
+                  <button type="button" disabled={mutating}
+                    onClick={() => handleResetPassword(user)}
+                    className="flex items-center gap-1.5 rounded-lg border border-blue-400/30 px-3 py-2 text-xs font-semibold text-blue-400 hover:bg-blue-500/10 disabled:opacity-50">
+                    <KeyRound size={14} />
+                    {resettingId === user.id ? "Resetting…" : "Reset Password"}
                   </button>
 
-                  {u.status !== "suspended" ? (
-                    <button
-                      disabled={isSelf || busyId === u.id}
-                      onClick={() => setStatus(u.id, "suspended")}
-                      title={isSelf ? "You can't suspend your own account" : "Suspend"}
-                      className="flex items-center gap-1.5 text-xs font-semibold border border-white/10 hover:bg-white/5 disabled:opacity-50 text-zinc-300 px-3 py-2 rounded-lg transition"
-                    >
-                      <ShieldBan size={14} /> Suspend
-                    </button>
-                  ) : (
-                    <button
-                      disabled={busyId === u.id}
-                      onClick={() => setStatus(u.id, "approved")}
-                      className="flex items-center gap-1.5 text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white px-3 py-2 rounded-lg transition"
-                    >
+                  {user.status === "suspended" ? (
+                    <button type="button" disabled={isSelf || mutating}
+                      onClick={() => updateAccount(user, { status: "approved" })}
+                      className="flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-2 text-xs font-semibold text-white hover:bg-emerald-500 disabled:opacity-50">
                       <RotateCcw size={14} /> Reinstate
                     </button>
+                  ) : (
+                    <button type="button" disabled={isSelf || mutating}
+                      onClick={() => updateAccount(user, { status: "suspended" })}
+                      className="flex items-center gap-1.5 rounded-lg border border-white/10 px-3 py-2 text-xs font-semibold text-zinc-300 hover:bg-white/5 disabled:opacity-50">
+                      <ShieldBan size={14} /> Suspend
+                    </button>
                   )}
-                  {u.status !== "rejected" && (
-                    <button
-                      disabled={isSelf || busyId === u.id}
-                      onClick={() => setStatus(u.id, "rejected")}
-                      title={isSelf ? "You can't ban your own account" : "Ban"}
-                      className="flex items-center gap-1.5 text-xs font-semibold bg-red-600 hover:bg-red-500 disabled:opacity-50 text-white px-3 py-2 rounded-lg transition"
-                    >
+
+                  {user.status !== "rejected" && (
+                    <button type="button" disabled={isSelf || mutating}
+                      onClick={() => updateAccount(user, { status: "rejected" })}
+                      className="flex items-center gap-1.5 rounded-lg bg-red-600 px-3 py-2 text-xs font-semibold text-white hover:bg-red-500 disabled:opacity-50">
                       <XCircle size={14} /> Ban
                     </button>
                   )}
@@ -410,51 +740,10 @@ export default function ManageUsersPage() {
       )}
 
       {newCredential && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm px-4"
-          onClick={() => setNewCredential(null)}
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            className="w-full max-w-md rounded-2xl border border-blue-500/20 bg-[#0B1120] p-6 relative"
-          >
-            <button
-              onClick={() => setNewCredential(null)}
-              className="absolute top-4 right-4 text-zinc-500 hover:text-white transition"
-              aria-label="Close"
-            >
-              <X size={18} />
-            </button>
-
-            <div className="flex items-center gap-2 mb-1">
-              <KeyRound size={18} className="text-blue-400" />
-              <h2 className="text-lg font-semibold text-white">New Password Issued</h2>
-            </div>
-            <p className="text-sm text-zinc-400 mb-5">
-              {newCredential.user.full_name || newCredential.user.email} — their old password no
-              longer works. Share this with them yourself; it won't be shown again.
-            </p>
-
-            <div>
-              <p className="text-xs text-zinc-500 mb-1">New Password</p>
-              <div className="flex items-center gap-2">
-                <code className="flex-1 text-sm font-mono bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-blue-400">
-                  {newCredential.password}
-                </code>
-                <button
-                  onClick={() => copyPassword(newCredential.password)}
-                  className="text-xs font-semibold border border-white/10 hover:bg-white/5 text-zinc-300 px-3 py-2 rounded-lg transition"
-                >
-                  Copy
-                </button>
-              </div>
-            </div>
-
-            <p className="text-[11px] text-zinc-500 text-center mt-5">
-              Only admins can issue password resets — accounts can't set their own.
-            </p>
-          </div>
-        </div>
+        <PasswordDialog
+          credential={newCredential}
+          onClose={() => setNewCredential(null)}
+        />
       )}
     </div>
   );
